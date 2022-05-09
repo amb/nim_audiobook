@@ -1,0 +1,146 @@
+import streams, std/base64, std/strformat
+
+type 
+    WavFile* = object
+        data*: seq[uint8]
+        size*: int
+        freq*: int
+        bits*: int
+        channels*: int
+
+    wavHeaderObj* = object
+        ChunkID*: array[4, char]
+        ChunkSize: uint32
+        Format: array[4, char]
+        FmtChunkID: array[4, char]
+        FmtChunkSize: uint32
+        AudioFormat: uint16
+        NumChannels: uint16
+        SampleRate: uint32
+        ByteRate: uint32
+        BlockAlign: uint16
+        BitsPerSample: uint16
+
+    wavChunkObj* = object
+        DataChunkID: string
+        DataChunkSize*: uint32 
+        Data: string
+        # Data: seq[uint8]
+
+
+proc readDataChunk(f: FileStream): wavChunkObj =
+    var chunk = wavChunkObj()
+    chunk.DataChunkID = f.readStr(4)
+    chunk.DataChunkSize = f.readUint32()
+    chunk.Data = f.readStr(chunk.DataChunkSize.int)
+
+    # TODO: this throws undebuggable error
+    # var tbuf = newSeq[uint8](chunk.DataChunkSize)
+    # discard f.readData(tbuf.addr, chunk.DataChunkSize.int)
+    # chunk.Data = tbuf
+    return chunk
+
+proc loadWav*(filePath: string): WavFile =
+    # Load PCM data from wav file.
+    var f = newFileStream(filePath)
+
+    var header = wavHeaderObj()
+    var count = f.readData(addr(header), sizeof(wavHeaderObj))
+
+    assert count == sizeof(wavHeaderObj)
+    assert header.ChunkID == "RIFF"
+    assert header.Format == "WAVE"
+    assert header.FmtChunkID == "fmt "
+    assert header.AudioFormat == 1
+
+    var chunk = wavChunkObj()
+    while chunk.DataChunkID != "data":
+        chunk = f.readDataChunk()
+
+    result.channels = int header.NumChannels
+    result.size = chunk.Data.len
+    result.freq = int header.SampleRate
+    result.bits = int header.BitsPerSample
+    result.data = cast[seq[uint8]](chunk.Data)
+
+# TODO: saved data chunk-size is not the same as loaded chunk-size
+
+proc wavWrite(f: Stream, wav: WavFile) = 
+    let datalen: uint32 = wav.data.len.uint32
+
+    var header = wavHeaderObj()
+    header.ChunkID = ['R', 'I', 'F', 'F']
+    header.ChunkSize = (datalen + 36).uint32
+    header.Format = ['W', 'A', 'V', 'E']
+    header.FmtChunkID = ['f', 'm', 't', ' ']
+    header.FmtChunkSize = 16.uint32
+    header.AudioFormat = 1.uint16
+    header.NumChannels = wav.channels.uint16
+    header.SampleRate = wav.freq.uint32
+    header.ByteRate = 44100.uint32
+    header.BlockAlign = 2.uint16
+    header.BitsPerSample = wav.bits.uint16
+
+    f.writeData(addr(header), sizeof(wavHeaderObj))
+    f.write(cast[array[4, char]](['d', 'a', 't', 'a']))
+    f.write(datalen)
+
+    f.writeData(wav.data[0].unsafeAddr, datalen.int)
+
+proc saveWav*(wav: WavFile, filePath: string) =
+    var f = newFileStream(filePath, fmWrite)
+    if not isNil(f):
+        f.wavWrite(wav)
+    else:
+        echo "Could not save .wav file: unable to open file for saving."
+
+proc toHTML*(wav: WavFile): string =
+    var f = newStringStream()
+    f.wavWrite(wav)
+    f.setPosition(0)
+    var content = f.readAll()
+    f.close()
+    # This is the text/html part
+    return fmt"""
+        <audio controls="controls" autoplay="autoplay">
+        <source src="data:audio/wav;base64,{encode(content)}" type="audio/wav" />
+        Your browser does not support the audio element.
+        </audio>
+        """
+
+proc Audio*(iarr: seq[float], freq: int): string =
+    # Similar to Python Jupyter Audio
+    var clip: WavFile
+    clip.size = iarr.len * 2
+    clip.freq = freq
+    clip.bits = 16
+    clip.channels = 1
+    clip.data = newSeq[uint8](clip.size)
+    var arr = cast[ptr UncheckedArray[int16]](clip.data[0].addr)
+    for i in 0..<iarr.len:
+        arr[i] = int16(iarr[i]*32000.0)
+    return clip.toHTML
+
+if isMainModule:
+    echo ">> Loadwav"
+    var sample_name = "sample.wav"
+    var iwav = loadWav(sample_name)
+
+    echo sample_name, ": ", 
+        iwav.size, " bytes, ", 
+        iwav.freq, " Hz, ", 
+        iwav.channels, " channels, ", 
+        iwav.bits, " bits, ",
+        iwav.data.len, " length"
+
+    # echo ">> Savewav"
+    # saveWav(iwav, "out.wav")
+
+    # var iwav2 = loadWav("out.wav")
+
+    # echo iwav2.size, " bytes, ", 
+    #     iwav2.freq, " Hz, ", 
+    #     iwav2.channels, " channels, ", 
+    #     iwav2.bits, " bits"
+
+    #echo toHTML(iwav)
