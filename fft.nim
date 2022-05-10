@@ -1,6 +1,16 @@
 import math, complex, strutils
-import std/sequtils
- 
+import std/[sequtils, times, os]
+import vorbis, wavfile
+
+template benchmark(benchmarkName: string, code: untyped) =
+  block:
+    let t0 = epochTime()
+    code
+    let elapsed = epochTime() - t0
+    let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
+    echo "CPU Time [", benchmarkName, "] ", elapsedStr, "s"
+
+
 # Works with floats and complex numbers as input
 proc fft_slow*[T: float | Complex[float]](x: openarray[T]): seq[Complex[float]] =
     let n = x.len
@@ -41,19 +51,14 @@ proc fft0(n: int, s: int, eo: bool, x: ptr seq[Complex[float]], y: ptr seq[Compl
     let m: int = n div 2
     let theta0: float = 2.0*PI/float(n) 
 
-    # if n == 2:
-    #     var z: ptr seq[Complex[float]] = if eo: y else: x
-    #     for q in 0..<s:
-    #         let a: Complex[float] = x[q + 0]
-    #         let b: Complex[float] = x[q + s]
-    #         z[q + 0] = a + b
-    #         z[q + s] = a - b
-    # elif n >= 4:
-    if n == 1:
-        if eo:
-            for q in 0..<s:
-                y[q] = x[q]
-    else:
+    if n == 2:
+        var z: ptr seq[Complex[float]] = if eo: y else: x
+        for q in 0..<s:
+            let a: Complex[float] = x[q + 0]
+            let b: Complex[float] = x[q + s]
+            z[q + 0] = a + b
+            z[q + s] = a - b
+    elif n >= 4:
         for p in 0..<m:
             let fp = float(p)*theta0
             let wp = complex(cos(fp), -sin(fp))
@@ -109,14 +114,16 @@ if isMainModule:
     let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 
                 -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
 
-    for i in fft_slow(tarr):
-        echo formatFloat(abs(i), ffDecimal, 3)
-
-    echo "-----"
+    # for i in fft_slow(tarr):
+    #     echo formatFloat(abs(i), ffDecimal, 3)
+    # echo "-----"
 
     var ts: seq[Complex[float]] = tarr.mapIt(complex(it, 0.0))
     fft(ts)
-    for i in ts:
-        echo formatFloat(abs(i), ffDecimal, 3)
     ifft(ts)
     assert ts.mapIt(round(it.re, 4)) == tarr
+
+    var vsf = loadVorbis("sample.ogg").toFloat.powerOf2Pad.mapIt(complex(it))
+    benchmark "fft":
+        fft(vsf)
+        
