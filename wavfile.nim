@@ -75,6 +75,16 @@ proc wavSeq(iarr: seq[float], freq: int): WavFile =
         arr[i] = int16(iarr[i]*32000.0)
     return clip
 
+
+proc toFloat*(wav: WavFile): seq[float] =
+    var rseq: seq[float] = @[] 
+    var arr = cast[ptr UncheckedArray[int16]](wav.data[0].unsafeAddr)
+    let mpl = 1.0/32000.0
+    for i in 0..<wav.size div 2:
+        #arr[i] = int16(iarr[i]*32000.0)
+        rseq.add(float(arr[i])*mpl)
+    return rseq
+
 proc loadWav*(filePath: string): WavFile =
     # Load PCM data from wav file.
     var f = newFileStream(filePath)
