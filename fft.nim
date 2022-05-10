@@ -1,14 +1,15 @@
 import math, complex, strutils
 import std/[sequtils, times, os]
 import vorbis, wavfile
+import benchy
 
-template benchmark(benchmarkName: string, code: untyped) =
-  block:
-    let t0 = epochTime()
-    code
-    let elapsed = epochTime() - t0
-    let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
-    echo "CPU Time [", benchmarkName, "] ", elapsedStr, "s"
+# template benchmark(benchmarkName: string, code: untyped) =
+#   block:
+#     let t0 = epochTime()
+#     code
+#     let elapsed = epochTime() - t0
+#     let elapsedStr = elapsed.formatFloat(format = ffDecimal, precision = 3)
+#     echo "CPU Time [", benchmarkName, "] ", elapsedStr, "s"
 
 
 # Works with floats and complex numbers as input
@@ -54,8 +55,8 @@ proc fft0(n: int, s: int, eo: bool, x: ptr seq[Complex[float]], y: ptr seq[Compl
     if n == 2:
         var z: ptr seq[Complex[float]] = if eo: y else: x
         for q in 0..<s:
-            let a: Complex[float] = x[q + 0]
-            let b: Complex[float] = x[q + s]
+            let a = x[q + 0]
+            let b = x[q + s]
             z[q + 0] = a + b
             z[q + s] = a - b
     elif n >= 4:
@@ -63,42 +64,35 @@ proc fft0(n: int, s: int, eo: bool, x: ptr seq[Complex[float]], y: ptr seq[Compl
             let fp = float(p)*theta0
             let wp = complex(cos(fp), -sin(fp))
             for q in 0..<s:
-                let a: Complex[float] = x[q + s*(p+0)]
-                let b: Complex[float] = x[q + s*(p+m)]
+                let a = x[q + s*(p+0)]
+                let b = x[q + s*(p+m)]
                 y[q + s*(2*p + 0)] =  a + b
                 y[q + s*(2*p + 1)] = (a - b) * wp
         fft0(n div 2, 2 * s, not eo, y, x)
 
-proc fft*(xi: seq[Complex[float]]) =
+proc fft*(x: var seq[Complex[float]]) =
     # n : sequence length
     # x : input/output sequence  
 
     # Input length has to be a power of two
-    assert xi.len > 0
-    assert xi.len.isPowerOfTwo()
-    # assert ceil(log2(float(xi.len))) == floor(log2(float(xi.len)))
+    assert x.len > 0
+    assert x.len.isPowerOfTwo()
     
-    var n: int = xi.len
-    var x = xi.unsafeAddr
+    var n: int = x.len
     var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0(n, 1, false, x, y.addr)
-    # let fn = complex(1.0/float(n))
-    # for k in 0..<n:
-    #     x[k] *= fn
+    fft0(n, 1, false, x.addr, y.addr)
 
-proc ifft*(xi: seq[Complex[float]]) =
+proc ifft*(x: var seq[Complex[float]]) =
     # n : sequence length
     # x : input/output sequence  
-    var n: int = xi.len
-    var x = xi.unsafeAddr
+    var n: int = x.len
 
     let fn = complex(1.0/float(n))
     for p in 0..<n:
         x[p] = (x[p]*fn).conjugate
-        # x[p] = x[p].conjugate
 
     var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0(n, 1, false, x, y.addr)
+    fft0(n, 1, false, x.addr, y.addr)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
@@ -124,6 +118,7 @@ if isMainModule:
     assert ts.mapIt(round(it.re, 4)) == tarr
 
     var vsf = loadVorbis("sample.ogg").toFloat.powerOf2Pad.mapIt(complex(it))
-    benchmark "fft":
+    timeIt "fft":
         fft(vsf)
         
+    # nim c -d:release -d:lto -d:strip -r fft.nim   
