@@ -42,7 +42,7 @@ proc fft_slow*[T: float | Complex[float]](x: openarray[T]): seq[Complex[float]] 
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
-proc fft0(n: int, s: int, eo: bool, x: ptr seq[Complex[float]], y: ptr seq[Complex[float]]) =
+proc fft0(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
     # n  : sequence length
     # s  : stride
     # eo : x is output if eo == 0, y is output if eo == 1
@@ -52,14 +52,11 @@ proc fft0(n: int, s: int, eo: bool, x: ptr seq[Complex[float]], y: ptr seq[Compl
     let m: int = n div 2
     let theta0: float = 2.0*PI/float(n) 
 
-    if n == 2:
-        var z: ptr seq[Complex[float]] = if eo: y else: x
-        for q in 0..<s:
-            let a = x[q + 0]
-            let b = x[q + s]
-            z[q + 0] = a + b
-            z[q + s] = a - b
-    elif n >= 4:
+    if n == 1:
+        if eo:
+            for q in 0..<s:
+                y[q] = x[q]
+    else:
         for p in 0..<m:
             let fp = float(p)*theta0
             let wp = complex(cos(fp), -sin(fp))
@@ -80,7 +77,7 @@ proc fft*(x: var seq[Complex[float]]) =
     
     var n: int = x.len
     var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0(n, 1, false, x.addr, y.addr)
+    fft0(n, 1, false, x, y)
 
 proc ifft*(x: var seq[Complex[float]]) =
     # n : sequence length
@@ -92,12 +89,12 @@ proc ifft*(x: var seq[Complex[float]]) =
         x[p] = (x[p]*fn).conjugate
 
     var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0(n, 1, false, x.addr, y.addr)
+    fft0(n, 1, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
 
-proc powerOf2Pad*(arr: seq[float]): seq[float] =
+proc padPowerOfTwo*(arr: seq[float]): seq[float] =
     assert arr.len > 0
     result = arr
     for i in arr.len..<arr.len.nextPowerOfTwo:
@@ -117,8 +114,9 @@ if isMainModule:
     ifft(ts)
     assert ts.mapIt(round(it.re, 4)) == tarr
 
-    var vsf = loadVorbis("sample.ogg").toFloat.powerOf2Pad.mapIt(complex(it))
+    var vsf = loadVorbis("sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it))
     timeIt "fft":
         fft(vsf)
         
-    # nim c -d:release -d:lto -d:strip -r fft.nim   
+    # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim   
+    # https://github.com/kraptor/nim_callgrind
