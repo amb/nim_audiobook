@@ -1,3 +1,4 @@
-.ipynb_*
+*.ipynb_*
 *_test
+fft
 
