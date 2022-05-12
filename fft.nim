@@ -1,7 +1,7 @@
 import math, complex, strutils
 import std/[sequtils]
 import vorbis, wavfile
-import benchy
+import benchy, pocketfft/pocketfft
 
 # import fftw3
 
@@ -118,8 +118,19 @@ if isMainModule:
     doAssert maxPowerOfTwo(16) == 4
 
     var vsf = loadVorbis("sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it))
+    var vsf2 = vsf
     timeIt "fft":
        fft(vsf)
+
+    var dOut = newSeq[Complex[float64]](vsf2.len)
+
+    let dInDesc = DataDesc[Complex[float64]].init(vsf2[0].addr, [vsf2.len])
+    var dOutDesc = DataDesc[Complex[float64]].init(dOut[0].addr, [dOut.len])
+
+    let fft = FFTDesc[float64].init(axes=[0], forward = true)
+
+    timeIt "pocketfft":
+        fft.apply(dOutDesc, dInDesc)
         
     # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim   
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft

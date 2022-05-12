@@ -141,7 +141,7 @@ type
     stride: Stride
     buf: ptr UncheckedArray[T]
 
-  FFTDesc[T] = object
+  FFTDesc*[T] = object
     ## Descriptor of the FFT
     axes: Shape
     scalingFactor: T
