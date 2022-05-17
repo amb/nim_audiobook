@@ -3,12 +3,19 @@ import std/[sequtils]
 import vorbis, wavfile
 import benchy
 import arraymancer
+import x86_simd/x86_avx
 
 # import pocketfft/pocketfft
 # import fftw3
 
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
+
+proc mulpz(ab: m256d, xy: m256d): m256d =
+    let aa = unpacklo_pd(ab, ab)
+    let bb = unpackhi_pd(ab, ab)
+    let yx = shuffle_pd(xy, xy, 5)
+    return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
 
 # This is +20-50% improvement
 const thetaLutSize = 2048
@@ -19,7 +26,7 @@ const thetaLut = static:
         v = complex(cos(step * float(k)), -sin(step * float(k)))
     arr
 
-proc fft0_seq(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
+proc fft0(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
     ## Fast Fourier Transform
     ## 
     ## Inputs:
@@ -50,9 +57,9 @@ proc fft0_seq(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[C
                 let b = x[q + s*(p+m)]
                 y[q + s*(2*p+0)] =  a + b
                 y[q + s*(2*p+1)] = (a - b) * wp
-        fft0_seq(n div 2, 2 * s, not eo, y, x)
+        fft0(n div 2, 2 * s, not eo, y, x)
 
-proc fft_seq*(x: var seq[Complex[float]]) =
+proc fft*(x: var seq[Complex[float]]) =
     # n : sequence length
     # x : input/output sequence  
 
@@ -61,9 +68,9 @@ proc fft_seq*(x: var seq[Complex[float]]) =
     assert x.len.isPowerOfTwo()
     
     var y: seq[Complex[float]] = newSeq[Complex[float]](x.len)
-    fft0_seq(x.len, 1, false, x, y)
+    fft0(x.len, 1, false, x, y)
 
-proc ifft_seq*(x: var seq[Complex[float]]) =
+proc ifft*(x: var seq[Complex[float]]) =
     # n : sequence length
     # x : input/output sequence  
     var n: int = x.len
@@ -73,7 +80,7 @@ proc ifft_seq*(x: var seq[Complex[float]]) =
         x[p] = (x[p]*fn).conjugate
 
     var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0_seq(n, 1, false, x, y)
+    fft0(n, 1, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
@@ -96,25 +103,66 @@ proc fft0(n: int, s: int, eo: bool, x: var Tensor[Complex[float]], y: var Tensor
         ls = s
         leo = eo
 
-    while ln > 1:
+    while ln >= 4:
         let theta0: float = 2.0*PI/float(ln) 
         ln = ln div 2
-        for p in 0..<ln:
-            let fp = float(p)*theta0
-            let wp = complex(cos(fp), -sin(fp))
-            let a = x[ls*(p+0)..<ls*(p+0+1)]
-            let b = x[ls*(p+ln)..<ls*(p+ln+1)]
-            y[ls*(2*p+0)..<ls*(2*p+1)] =  a + b
-            y[ls*(2*p+1)..<ls*(2*p+2)] = (a - b) * wp
+
+        if ls == 1:
+            for p in 0..<ln:
+                let fp = float(p)*theta0
+                let wp = complex(cos(fp), -sin(fp))
+                let a = x[p+0]
+                let b = x[p+ln]
+                y[2*p+0] =  a + b
+                y[2*p+1] = (a - b) * wp
+        else:
+            for p in 0..<ln:
+                let fp = float(p)*theta0
+                let cval =  cos(fp)
+                let sval = -sin(fp)
+                let o0 = ls*(p+0)
+                let o1 = ls*(p+ln)
+                let o2 = ls*(2*p+0)
+                let o3 = ls*(2*p+1)
+                let wp = setr_pd(cval, sval, cval, sval)
+                for tq in 0..<(ls div 2):
+                    let q = tq shl 1
+                    let a = load_pd_256(x[q+o0].re.addr)
+                    let b = load_pd_256(x[q+o1].re.addr)
+                    store_pd(y[q+o2].re.addr,           add_pd(a, b))
+                    store_pd(y[q+o3].re.addr, mulpz(wp, sub_pd(a, b)))
 
         ls = ls * 2
         leo = not leo
         (y, x) = (x, y)
 
-    if ln == 1:
-        if leo:
-            for q in 0..<ls:
-                y[q] = x[q]
+    if ln == 2:
+        if ls == 1:
+            if eo:
+                let a = x[0]
+                let b = x[1]
+                y[0] = a + b
+                y[1] = a - b
+            else:
+                let a = x[0]
+                let b = x[1]
+                x[0] = a + b
+                x[1] = a - b
+        else:
+            if eo:
+                for q in 0..<ls:
+                    let a = x[q +  0]
+                    let b = x[q + ls]
+                    y[q +  0] = a + b
+                    y[q + ls] = a - b
+            else:
+                for q in 0..<ls:
+                    let a = x[q +  0]
+                    let b = x[q + ls]
+                    x[q +  0] = a + b
+                    x[q + ls] = a - b
+
+
 
 proc fft*(x: var Tensor[Complex[float]]) =
     # n : sequence length
@@ -142,7 +190,6 @@ proc ifft*(x: var Tensor[Complex[float]]) =
     for p in 0..<n:
         x[p] = x[p].conjugate
 
-
 proc padPowerOfTwo*(arr: seq[float]): seq[float] =
     assert arr.len > 0
     result = arr
@@ -159,7 +206,7 @@ if isMainModule:
     let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22, 
                        0.0, 1.22, 1.71, 2.27, 1.41, 3.4 , 4.13, 6.15]
 
-    var ts: Tensor[Complex[float]] = tarr.mapIt(complex(it, 0.0)).toTensor()
+    var ts = tarr.mapIt(complex(it, 0.0)).toTensor()
     fft(ts)
     var fft_result = ts.mapIt(round(abs(it), 2))
     doAssert fft_result == fft_target
@@ -168,15 +215,10 @@ if isMainModule:
     var tsr = ts.mapIt(round(it.re, 4))
     doAssert tsr == tarr
 
-    # Use nextPowerOfTwo instead
-    # doAssert maxPowerOfTwo(1048576) == 20
-    # doAssert maxPowerOfTwo(2) == 1
-    # doAssert maxPowerOfTwo(16) == 4
-
     var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it)).toTensor()
     var vsf2 = vsf
 
-    var y: Tensor[Complex[float]] = zeros[Complex[float]](vsf.shape[0])
+    var y = zeros[Complex[float]](vsf.shape[0])
     timeIt "fft":
         fft0(vsf.shape[0], 1, false, vsf, y)
         #fft(vsf)
