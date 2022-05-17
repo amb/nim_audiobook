@@ -5,7 +5,8 @@ import benchy
 import arraymancer
 import x86_simd/x86_avx
 
-# import pocketfft/pocketfft
+import pocketfft/pocketfft
+
 # import fftw3
 
 # OTFFT library
@@ -17,6 +18,7 @@ proc mulpz(ab: m256d, xy: m256d): m256d =
     let yx = shuffle_pd(xy, xy, 5)
     return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
 
+
 # This is +20-50% improvement
 const thetaLutSize = 2048
 const thetaLut = static:
@@ -26,22 +28,27 @@ const thetaLut = static:
         v = complex(cos(step * float(k)), -sin(step * float(k)))
     arr
 
-proc fft0(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
+
+type
+    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+
+
+proc fft0[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
-    ## 
+    ##
     ## Inputs:
     ## - `n` Sequence length. **Must be power of two**
     ## - `s` Stride
     ## - `eo` x is output if eo == 0, y is output if eo == 1
     ## - `x` Input sequence(or output sequence if eo == 0)
     ## - `y` Work area(or output sequence if eo == 1)
-    ## 
+    ##
     ## Returns:
     ## - Output sequence, either `x` or `y`
 
     let m: int = n div 2
-    let theta0: float = 2.0*PI/float(n) 
-    # let theta0: float = float(thetaLutSize)/float(n) 
+    let theta0: float = 2.0*PI/float(n)
+    # let theta0: float = float(thetaLutSize)/float(n)
     if n == 1:
         if eo:
             for q in 0..<s:
@@ -59,52 +66,27 @@ proc fft0(n: int, s: int, eo: bool, x: var seq[Complex[float]], y: var seq[Compl
                 y[q + s*(2*p+1)] = (a - b) * wp
         fft0(n div 2, 2 * s, not eo, y, x)
 
-proc fft*(x: var seq[Complex[float]]) =
-    # n : sequence length
-    # x : input/output sequence  
 
-    # Input length has to be a power of two
-    assert x.len > 0
-    assert x.len.isPowerOfTwo()
-    
-    var y: seq[Complex[float]] = newSeq[Complex[float]](x.len)
-    fft0(x.len, 1, false, x, y)
-
-proc ifft*(x: var seq[Complex[float]]) =
-    # n : sequence length
-    # x : input/output sequence  
-    var n: int = x.len
-
-    let fn = complex(1.0/float(n))
-    for p in 0..<n:
-        x[p] = (x[p]*fn).conjugate
-
-    var y: seq[Complex[float]] = newSeq[Complex[float]](n)
-    fft0(n, 1, false, x, y)
-
-    for p in 0..<n:
-        x[p] = x[p].conjugate
-
-proc fft0(n: int, s: int, eo: bool, x: var Tensor[Complex[float]], y: var Tensor[Complex[float]]) =
+proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
-    ## 
+    ##
     ## Inputs:
     ## - `n` Sequence length. **Must be power of two**
     ## - `s` Stride
     ## - `eo` x is output if eo == 0, y is output if eo == 1
     ## - `x` Input sequence(or output sequence if eo == 0)
     ## - `y` Work area(or output sequence if eo == 1)
-    ## 
+    ##
     ## Returns:
     ## - Output sequence, either `x` or `y`
 
-    var 
+    var
         ln = n
         ls = s
         leo = eo
 
     while ln >= 4:
-        let theta0: float = 2.0*PI/float(ln) 
+        let theta0: float = 2.0*PI/float(ln)
         ln = ln div 2
 
         if ls == 1:
@@ -125,8 +107,7 @@ proc fft0(n: int, s: int, eo: bool, x: var Tensor[Complex[float]], y: var Tensor
                 let o2 = ls*(2*p+0)
                 let o3 = ls*(2*p+1)
                 let wp = setr_pd(cval, sval, cval, sval)
-                for tq in 0..<(ls div 2):
-                    let q = tq shl 1
+                for q in countup(0, ls-1, 2):
                     let a = load_pd_256(x[q+o0].re.addr)
                     let b = load_pd_256(x[q+o1].re.addr)
                     store_pd(y[q+o2].re.addr,           add_pd(a, b))
@@ -137,58 +118,63 @@ proc fft0(n: int, s: int, eo: bool, x: var Tensor[Complex[float]], y: var Tensor
         (y, x) = (x, y)
 
     if ln == 2:
+        var z = if eo: y else: x
         if ls == 1:
-            if eo:
-                let a = x[0]
-                let b = x[1]
-                y[0] = a + b
-                y[1] = a - b
-            else:
-                let a = x[0]
-                let b = x[1]
-                x[0] = a + b
-                x[1] = a - b
+            let a = x[0]
+            let b = x[1]
+            z[0] = a + b
+            z[1] = a - b
         else:
-            if eo:
-                for q in 0..<ls:
-                    let a = x[q +  0]
-                    let b = x[q + ls]
-                    y[q +  0] = a + b
-                    y[q + ls] = a - b
-            else:
-                for q in 0..<ls:
-                    let a = x[q +  0]
-                    let b = x[q + ls]
-                    x[q +  0] = a + b
-                    x[q + ls] = a - b
+            for q in 0..<ls:
+                let a = x[q +  0]
+                let b = x[q + ls]
+                z[q +  0] = a + b
+                z[q + ls] = a - b
 
 
+proc fft_empty_array(v: FFTArray): FFTArray =
+    when v is seq:
+        result = newSeq[Complex[float]](v.len)
+    elif v is Tensor:
+        result = zeros[Complex[float]](v.shape[0])
 
-proc fft*(x: var Tensor[Complex[float]]) =
+
+proc fft_array_len(v: FFTArray): int =
+    result = 0
+    when v is seq:
+        result = v.len
+    elif v is Tensor:
+        result = v.shape[0]
+
+
+proc fft*(x: var FFTArray) =
     # n : sequence length
-    # x : input/output sequence  
+    # x : input/output sequence
 
     # Input length has to be a power of two
-    assert x.shape[0] > 0
-    assert x.shape[0].isPowerOfTwo()
-    
-    var y: Tensor[Complex[float]] = zeros[Complex[float]](x.shape[0])
-    fft0(x.shape[0], 1, false, x, y)
+    let alen = fft_array_len(x)
+    assert alen > 0
+    assert alen.isPowerOfTwo()
 
-proc ifft*(x: var Tensor[Complex[float]]) =
+    var y = fft_empty_array(x)
+    fft0(alen, 1, false, x, y)
+
+
+proc ifft*(x: var FFTArray) =
     # n : sequence length
-    # x : input/output sequence  
-    var n: int = x.shape[0]
+    # x : input/output sequence
+    var n: int = fft_array_len(x)
 
     let fn = complex(1.0/float(n))
     for p in 0..<n:
         x[p] = (x[p]*fn).conjugate
 
-    var y: Tensor[Complex[float]] = zeros[Complex[float]](n)
+    var y = fft_empty_array(x)
     fft0(n, 1, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
+
 
 proc padPowerOfTwo*(arr: seq[float]): seq[float] =
     assert arr.len > 0
@@ -197,16 +183,17 @@ proc padPowerOfTwo*(arr: seq[float]): seq[float] =
         result.add(arr[0])
     assert result.len.isPowerOfTwo
 
+
 if isMainModule:
     echo "Running main module..."
 
-    let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 
+    let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
                 -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
 
-    let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22, 
+    let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22,
                        0.0, 1.22, 1.71, 2.27, 1.41, 3.4 , 4.13, 6.15]
 
-    var ts = tarr.mapIt(complex(it, 0.0)).toTensor()
+    var ts = tarr.mapIt(complex(it, 0.0))
     fft(ts)
     var fft_result = ts.mapIt(round(abs(it), 2))
     doAssert fft_result == fft_target
@@ -215,13 +202,14 @@ if isMainModule:
     var tsr = ts.mapIt(round(it.re, 4))
     doAssert tsr == tarr
 
-    var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it)).toTensor()
+    var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it))
     var vsf2 = vsf
 
-    var y = zeros[Complex[float]](vsf.shape[0])
+    var y = fft_empty_array(vsf)
     timeIt "fft":
-        fft0(vsf.shape[0], 1, false, vsf, y)
-        #fft(vsf)
+        # Non-AVX is faster when -d:lto
+        fft0(fft_array_len(vsf), 1, false, vsf, y)
+        # fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
 
     # Benchmark pocketFFT
     # var dOut = newSeq[Complex[float64]](vsf2.len)
@@ -230,7 +218,7 @@ if isMainModule:
     # let fft = FFTDesc[float64].init(axes=[0], forward=true)
     # timeIt "pocketfft":
     #     fft.apply(dOutDesc, dInDesc)
-        
-    # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim   
+
+    # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
     # https://github.com/kraptor/nim_callgrind
