@@ -28,6 +28,14 @@ proc plot1D*(img: Image, arr: openArray[float]): Image =
     img.strokePath(fmt"M {path[0]} L " & path.join(""), rgba(0, 0, 128, 255), strokeWidth = 1)
     return img
 
+proc plot2DArray*(arr: Tensor[float]): Image =
+    var array_out = newImage(arr.shape[0], arr.shape[1])
+    for x in 0..<arr.shape[0]:
+        for y in 0..<arr.shape[1]:
+            let c = arr[x, y]
+            array_out[x, arr.shape[1]-y] = color(c, c, c)
+    return array_out
+
 proc basicSine*(srate: int): Tensor[float] =
     let srate = float(srate)
     let dur = 1000
@@ -69,35 +77,21 @@ proc melBanks*[T: SomeFloat](rank, n, rate: int, fl, fh: T): Tensor[T] =
                 result[m - 1, k] = (temp[0, m + 1] - T(k)) / (temp[0, m + 1] - temp[0, m])
 
 proc stft*(data: Tensor[float], freq: float, fft_size: int): Tensor[float] =
-    # data: array containing the signal to be processed
-    # freq: sampling frequency of the data
-
     let data_len = data.shape[0]
     let hop_size = fft_size div 2
-    let ffth = fft_size div 2
-
-    # max hops given the size of data, fft_size and hop_size
+    let fft_half = fft_size div 2
     let total_segments = (data_len - fft_size) div hop_size
 
-    # our half cosine window
-    let window = hann(fft_size)
-
-    # space to hold the result
-    result = zeros[float]([total_segments, ffth])
-    echo "Out STFT shape: ", result.shape
-
     # for each segment
+    result = zeros[float]([total_segments, fft_half])
+    let window = hann(fft_size)
     var windowed = zeros[Complex[float]]([fft_size])
     for i in 0..<total_segments:
         let wl = hop_size * i
         for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
             windowed[j] = complex(val)
         fft(windowed)
-        result[i, _] = (abs(windowed)[0..<ffth]).reshape([1, ffth])
-
-    # scale to db and clip
-    # result = float(20.0) * log10(result)
-    # result = clamp(result, -40.0, 200.0)
+        result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
 
 if isMainModule:
     var cten = zeros[Complex[float]]([5])
