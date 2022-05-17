@@ -13,7 +13,7 @@ import x86_simd/x86_avx
 
 # import fftw3
 
-{.emit: """#include <valgrind/callgrind.h>""".}
+# {.emit: """#include <valgrind/callgrind.h>""".}
 
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
@@ -88,7 +88,7 @@ proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Returns:
     ## - Output sequence, either `x` or `y`
     
-    {.emit: """CALLGRIND_START_INSTRUMENTATION; CALLGRIND_TOGGLE_COLLECT;""".}
+    # {.emit: """CALLGRIND_START_INSTRUMENTATION; CALLGRIND_TOGGLE_COLLECT;""".}
 
     let m = n div 2
 
@@ -151,7 +151,7 @@ proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
         fft0_avx(n div 2, s * 2, not eo, y, x)
 
-    {.emit: """CALLGRIND_TOGGLE_COLLECT; CALLGRIND_STOP_INSTRUMENTATION;""".}
+    # {.emit: """CALLGRIND_TOGGLE_COLLECT; CALLGRIND_STOP_INSTRUMENTATION;""".}
 
 proc fft_empty_array(v: FFTArray): FFTArray =
     when v is seq:
@@ -228,7 +228,10 @@ if isMainModule:
     timeIt "fft":
         # Non-AVX is faster when -d:lto
         fft0(fft_array_len(vsf), 1, false, vsf, y)
-        # fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
+
+    timeIt "fft_avx":
+        # Faster when only -d:release or debug
+        fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
 
 
     # Benchmark pocketFFT
