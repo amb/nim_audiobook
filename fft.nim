@@ -119,9 +119,9 @@ proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
                 y[2*p+1] = (a - b) * wp
         else:
             for p in 0..<m:
-                let fpl  = thetaLut[int(float(p)*thetaL0)]
-                let cval = fpl[0]
-                let sval = fpl[1]
+                # let fpl  = thetaLut[int(float(p)*thetaL0)]
+                # let cval = fpl[0]
+                # let sval = fpl[1]
 
                 # thetaLutSize = 8
                 # let (cval, sval) = case int(float(p)*thetaL0)
@@ -135,9 +135,9 @@ proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
                 # of 7: (0.7071067811865474, 0.7071067811865477)
                 # else: (1.0, 1.0)
 
-                # let fp = float(p)*theta0
-                # let cval =  cos(fp)
-                # let sval = -sin(fp)
+                let fp = float(p)*theta0
+                let cval =  cos(fp)
+                let sval = -sin(fp)
                 let o0 = s*(p+0)
                 let o1 = s*(p+m)
                 let o2 = s*(2*p+0)

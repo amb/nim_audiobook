@@ -3,6 +3,17 @@ import sugar
 import std/[strutils, strformat, sequtils, math, base64]
 import fft
 
+const ok_purple = polarOklab(color(1.0, 0.0, 1.0, 1.0))
+const ok_yellow = polarOklab(color(1.0, 1.0, 0.0, 1.0))
+
+proc magma(x: float): Color =
+    # TODO: colors don't seem to behave the way I think they do
+    # var c = polarOklab(i*255.0, ok_purple.C * (1.0 - x) + ok_yellow.C * x, ok_purple.h * (1.0 - x) + ok_yellow.h * x)
+    # result = color(c)
+    # let i=pow(x, 1.2)
+    result = color(hsv((1.0-x)*255.0, (1.0-x)*128.0+128.0, x*255.0))
+    result.a = 1.0
+
 proc Image*(img: Image): string =
     return fmt"""<img src="data:image/png;base64, {img.encodeImage(PngFormat).encode}" />"""
 
@@ -30,10 +41,14 @@ proc plot1D*(img: Image, arr: openArray[float]): Image =
 
 proc plot2DArray*(arr: Tensor[float]): Image =
     var array_out = newImage(arr.shape[0], arr.shape[1])
+    let amin = arr.min()
+    let amax = arr.max() - amin
     for x in 0..<arr.shape[0]:
         for y in 0..<arr.shape[1]:
-            let c = arr[x, y]
+            # let c = pow(arr[x, y], 0.5) * 0.95
+            let c = (arr[x, y] - amin)/amax
             array_out[x, arr.shape[1]-y] = color(c, c, c)
+            # array_out[x, arr.shape[1]-y] = magma(c)
     return array_out
 
 proc basicSine*(srate: int): Tensor[float] =
@@ -76,11 +91,21 @@ proc melBanks*[T: SomeFloat](rank, n, rate: int, fl, fh: T): Tensor[T] =
             elif temp[0, m] <= T(k) and T(k) <= temp[0, m + 1]:
                 result[m - 1, k] = (temp[0, m + 1] - T(k)) / (temp[0, m + 1] - temp[0, m])
 
-proc stft*(data: Tensor[float], freq: float, fft_size: int): Tensor[float] =
-    let data_len = data.shape[0]
+proc dbToAmplitude*(data: Tensor[float]): Tensor[float] =
+    return data.map(x => pow(10.0, x/20.0))
+
+proc amplitudeToDb*(data: Tensor[float]): Tensor[float] =
+    return data.map(x => log10(x)) * 20.0
+
+proc clip*(data: Tensor[float], a: float, b: float): Tensor[float] =
+    return data.map(x => clamp(x, a, b))
+
+proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
+    # TODO: pad by half window size on both ends
+
     let hop_size = fft_size div 2
     let fft_half = fft_size div 2
-    let total_segments = (data_len - fft_size) div hop_size
+    let total_segments = (data.shape[0] - fft_size) div hop_size
 
     # for each segment
     result = zeros[float]([total_segments, fft_half])
@@ -92,7 +117,3 @@ proc stft*(data: Tensor[float], freq: float, fft_size: int): Tensor[float] =
             windowed[j] = complex(val)
         fft(windowed)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
-
-if isMainModule:
-    var cten = zeros[Complex[float]]([5])
-    echo cten.shape, " ", cten
