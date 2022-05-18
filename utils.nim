@@ -79,15 +79,16 @@ proc melPts*[T](r: int, fl, fh: T): Tensor[T] = linspace(fl.freqToMel, fh.freqTo
 
 proc melBanks*(rank, fft_size, sample_rate: int, fh: float): Tensor[float] =
     result = zeros[float](rank, fft_size div 2)
-    let freqs = melPts(rank, 0.0, fh)
-    let bins = floor((fft_size+1).float * freqs / sample_rate.float)
-    # let bins = (fft_size+1).float * freqs / sample_rate.float
-    echo bins
+    let bins = floor(fft_size.float * melPts(rank, 0.0, fh) / sample_rate.float)
     for m in 1..rank:
-        for k in int(bins[m-1])..<int(bins[m]):
-            result[m-1, k] = (k.float - bins[m-1]) / (bins[m] - bins[m-1])
-        for k in int(bins[m])..<int(bins[m+1]):
-            result[m-1, k] = (bins[m+1] - k.float) / (bins[m+1] - bins[m])
+        if bins[m-1] != bins[m] and bins[m] != bins[m+1]:
+            for k in int(bins[m-1])..<int(bins[m]):
+                result[m-1, k] = (k.float - bins[m-1]) / (bins[m] - bins[m-1])
+            for k in int(bins[m])..<int(bins[m+1]):
+                result[m-1, k] = (bins[m+1] - k.float) / (bins[m+1] - bins[m])
+        else:
+            # TODO: bilinear interpolation to fix the gaps
+            result[m-1, int(bins[m])] = 1.0
 
 proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
     # TODO: pad by half window size on both ends
