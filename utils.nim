@@ -1,5 +1,4 @@
-import arraymancer, pixie
-import sugar
+import arraymancer, pixie, sugar
 import std/[strutils, strformat, sequtils, math, base64]
 import fft
 
@@ -64,74 +63,47 @@ proc basicSine*(srate: int): Tensor[float] =
     # sample += sin(rr*(2.0*PI*440.0*16.0/srate))
     return sample *. sin(rr*(0.5*PI/float(dur)))
 
-proc hann*(size: int): Tensor[float] =
-    # TODO: proper cosine-sum versions of Hann and Hamming
-    let rr = toSeq(0..<size).mapIt(it.float).toTensor()
-    return sin(rr*PI/float(size)).square
+proc hann*[T](sz: int): Tensor[T] = sin(arange(sz.T)*PI/T(sz-1)).square
+proc hamming*[T](sz: int): Tensor[T] = 0.54 -. 0.46*cos(arange(sz.T)*2.0*PI/T(sz-1)) 
 
-proc freqToMel*(freq: float): float = 
-    var value: float = 1.0 + freq / 700.0
-    if value == 0.0:
-        return 1.0/2048.0
-    else:
-        return 2595.0 * log10(value)
+proc freqToMel*[T](freq: T): T = 2595.0 * log10(1.0 + freq / 700.0)
+proc melToFreq*[T](mel: T): T = 700.0 * (pow(10.0, mel / 2595.0) - 1.0)
+proc melToFreq*[T](mel: Tensor[T]): Tensor[T] = 
+    return 700.0 * ((mel / 2595.0).map(x => pow(10.0, x)) -. 1.0)
 
-proc melToFreq*(mel: float): float = 
-    return 700.0 * (pow(10.0, mel / 2595.0) - 1.0)
+proc dbToAmplitude*[T](data: Tensor[T]): Tensor[T] = data.map(x => pow(10.0, x/20.0))
+proc amplitudeToDb*[T](data: Tensor[T]): Tensor[T] = data.map(x => log10(x) * 20.0) 
+proc clip*[T](data: Tensor[T], a, b: T): Tensor[T] = data.map(x => clamp(x, a, b))
 
-proc melBankLocs*(rank, n, rate: int, fl, fh: float): Tensor[float] =
-    result = newTensor[float](1, rank + 2)
-    for i in 0..<rank+2:
-        let mel_fl = freqToMel(fl)
-        let mel_fh = freqToMel(fh)
-        result[0, i] = float(n/rate) * melToFreq(mel_fl + float(i)*(mel_fh - mel_fl)/float(rank+1))
+proc melPts*[T](r: int, fl, fh: T): Tensor[T] = linspace(fl.freqToMel, fh.freqToMel, r+2).melToFreq
 
-proc melBanks*(rank, n, rate: int, fl, fh: float): Tensor[float] =
-    result = newTensor[float](rank, n)
-    var temp = newTensor[float](1, rank + 2)
-    for i in 0..<rank+2:
-        let mel_fl = freqToMel(fl)
-        let mel_fh = freqToMel(fh)
-        temp[0, i] = float(n/rate) * melToFreq(mel_fl + float(i)*(mel_fh - mel_fl)/float(rank+1))
+proc melBanks*(rank, fft_size, sample_rate: int, fh: float): Tensor[float] =
+    result = zeros[float](rank, fft_size div 2)
+    let freqs = melPts(rank, 0.0, fh)
+    let bins = floor((fft_size+1).float * freqs / sample_rate.float)
+    # let bins = (fft_size+1).float * freqs / sample_rate.float
+    echo bins
     for m in 1..rank:
-        for k in 0..n:
-            let fk = float(k)
-            # First half
-            if temp[0, m-1] <= fk and fk <= temp[0, m]:
-                result[m-1, k] = (fk - temp[0, m-1]) / (temp[0, m] - temp[0, m-1])
-            # Second half
-            elif temp[0, m] <= fk and fk <= temp[0, m+1]:
-                result[m-1, k] = (temp[0, m+1] - fk) / (temp[0, m+1] - temp[0, m])
-
-proc dbToAmplitude*(data: Tensor[float]): Tensor[float] =
-    return data.map(x => pow(10.0, x/20.0))
-
-proc amplitudeToDb*(data: Tensor[float]): Tensor[float] =
-    return data.map(x => log10(x) * 20.0) 
-
-proc clip*(data: Tensor[float], a: float, b: float): Tensor[float] =
-    return data.map(x => clamp(x, a, b))
+        for k in int(bins[m-1])..<int(bins[m]):
+            result[m-1, k] = (k.float - bins[m-1]) / (bins[m] - bins[m-1])
+        for k in int(bins[m])..<int(bins[m+1]):
+            result[m-1, k] = (bins[m+1] - k.float) / (bins[m+1] - bins[m])
 
 proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
     # TODO: pad by half window size on both ends
-
     assert fft_size.isPowerOfTwo
-
     let hop_size = fft_size div 2
     let fft_half = fft_size div 2
     let total_segments = (data.shape[0] - fft_size) div hop_size
 
-    # for each segment
     result = zeros[float]([total_segments, fft_half])
-    let window = hann(fft_size)
+    let window = hamming[float](fft_size)
     var windowed = zeros[Complex[float]]([fft_size])
     var y = fft_empty_array(windowed)
     for i in 0..<total_segments:
         let wl = hop_size * i
         for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
             windowed[j] = complex(val)
-            y[j] = complex(0.0)
-        # fft(windowed)
-        fft0_avx(windowed.shape[0], 1, false, windowed, y)
+        fft0_avx(fft_size, 1, false, windowed, y)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
 
