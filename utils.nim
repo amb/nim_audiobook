@@ -65,43 +65,57 @@ proc basicSine*(srate: int): Tensor[float] =
     return sample *. sin(rr*(0.5*PI/float(dur)))
 
 proc hann*(size: int): Tensor[float] =
+    # TODO: proper cosine-sum versions of Hann and Hamming
     let rr = toSeq(0..<size).mapIt(it.float).toTensor()
-    return cos(rr*2.0*PI/float(size))
+    return sin(rr*PI/float(size)).square
 
-proc freq2mel*(freq: float): float = 
+proc freqToMel*(freq: float): float = 
     var value: float = 1.0 + freq / 700.0
     if value == 0.0:
         return 1.0/2048.0
     else:
-        return 1127.0 * ln(value)
+        return 2595.0 * log10(value)
 
-proc mel2freq*(mel: float): float = 
-    return 700.0 * (exp(mel / 1127.0) - 1.0)
+proc melToFreq*(mel: float): float = 
+    return 700.0 * (pow(10.0, mel / 2595.0) - 1.0)
 
-proc melBanks*[T: SomeFloat](rank, n, rate: int, fl, fh: T): Tensor[T] =
-    var temp = newTensor[T](1, rank + 2)
-    result = newTensor[T](rank, n)
-    for i in 0 ..< rank + 2:
-        temp[0, i] = T(n / rate) * mel2freq(freq2mel(fl) + T(i) * (freq2mel(fh) -
-            freq2mel(fl)) / T(rank+1))
-    for m in 1 .. rank:
-        for k in 0 .. n:
-            if temp[0, m - 1] <= T(k) and T(k) <= temp[0, m]:
-                result[m - 1, k] = (T(k) - temp[0, m - 1]) / (temp[0, m] - temp[0, m - 1])
-            elif temp[0, m] <= T(k) and T(k) <= temp[0, m + 1]:
-                result[m - 1, k] = (temp[0, m + 1] - T(k)) / (temp[0, m + 1] - temp[0, m])
+proc melBankLocs*(rank, n, rate: int, fl, fh: float): Tensor[float] =
+    result = newTensor[float](1, rank + 2)
+    for i in 0..<rank+2:
+        let mel_fl = freqToMel(fl)
+        let mel_fh = freqToMel(fh)
+        result[0, i] = float(n/rate) * melToFreq(mel_fl + float(i)*(mel_fh - mel_fl)/float(rank+1))
+
+proc melBanks*(rank, n, rate: int, fl, fh: float): Tensor[float] =
+    result = newTensor[float](rank, n)
+    var temp = newTensor[float](1, rank + 2)
+    for i in 0..<rank+2:
+        let mel_fl = freqToMel(fl)
+        let mel_fh = freqToMel(fh)
+        temp[0, i] = float(n/rate) * melToFreq(mel_fl + float(i)*(mel_fh - mel_fl)/float(rank+1))
+    for m in 1..rank:
+        for k in 0..n:
+            let fk = float(k)
+            # First half
+            if temp[0, m-1] <= fk and fk <= temp[0, m]:
+                result[m-1, k] = (fk - temp[0, m-1]) / (temp[0, m] - temp[0, m-1])
+            # Second half
+            elif temp[0, m] <= fk and fk <= temp[0, m+1]:
+                result[m-1, k] = (temp[0, m+1] - fk) / (temp[0, m+1] - temp[0, m])
 
 proc dbToAmplitude*(data: Tensor[float]): Tensor[float] =
     return data.map(x => pow(10.0, x/20.0))
 
 proc amplitudeToDb*(data: Tensor[float]): Tensor[float] =
-    return data.map(x => log10(x)) * 20.0
+    return data.map(x => log10(x) * 20.0) 
 
 proc clip*(data: Tensor[float], a: float, b: float): Tensor[float] =
     return data.map(x => clamp(x, a, b))
 
 proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
     # TODO: pad by half window size on both ends
+
+    assert fft_size.isPowerOfTwo
 
     let hop_size = fft_size div 2
     let fft_half = fft_size div 2
@@ -111,9 +125,13 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
     result = zeros[float]([total_segments, fft_half])
     let window = hann(fft_size)
     var windowed = zeros[Complex[float]]([fft_size])
+    var y = fft_empty_array(windowed)
     for i in 0..<total_segments:
         let wl = hop_size * i
         for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
             windowed[j] = complex(val)
-        fft(windowed)
+            y[j] = complex(0.0)
+        # fft(windowed)
+        fft0_avx(windowed.shape[0], 1, false, windowed, y)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
+

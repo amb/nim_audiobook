@@ -41,7 +41,7 @@ const thetaLut = static:
 type
     FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
 
-proc fft0[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -75,7 +75,7 @@ proc fft0[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
         fft0(n div 2, 2 * s, not eo, y, x)
 
-proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0_avx*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -153,13 +153,13 @@ proc fft0_avx[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
     # {.emit: """CALLGRIND_TOGGLE_COLLECT; CALLGRIND_STOP_INSTRUMENTATION;""".}
 
-proc fft_empty_array(v: FFTArray): FFTArray =
+proc fft_empty_array*(v: FFTArray): FFTArray =
     when v is seq:
         result = newSeq[Complex[float]](v.len)
     elif v is Tensor:
         result = zeros[Complex[float]](v.shape[0])
 
-proc fft_array_len(v: FFTArray): int =
+proc fft_array_len*(v: FFTArray): int =
     result = 0
     when v is seq:
         result = v.len
