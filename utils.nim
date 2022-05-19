@@ -75,11 +75,13 @@ proc dbToAmplitude*[T](data: Tensor[T]): Tensor[T] = data.map(x => pow(10.0, x/2
 proc amplitudeToDb*[T](data: Tensor[T]): Tensor[T] = data.map(x => log10(x) * 20.0) 
 proc clip*[T](data: Tensor[T], a, b: T): Tensor[T] = data.map(x => clamp(x, a, b))
 
-proc melPts*[T](r: int, fl, fh: T): Tensor[T] = linspace(fl.freqToMel, fh.freqToMel, r+2).melToFreq
+# Same as Complex.phase really
+proc angle*[T: SomeFloat](z: Complex[T], degrees: bool = false): T = arctan2(z.im, z.re)
 
-proc melBanks*(rank, fft_size, sample_rate: int, fh: float): Tensor[float] =
+proc melPts*[T](r: int, fl, fh: T): Tensor[T] = linspace(fl.freqToMel, fh.freqToMel, r+2).melToFreq
+proc melBanks*(rank, fft_size, srate: int, fh: float): Tensor[float] =
     result = zeros[float](rank, fft_size div 2)
-    let bins = floor(fft_size.float * melPts(rank, 0.0, fh) / sample_rate.float)
+    let bins = floor(fft_size.float * melPts(rank, 0.0, fh) / srate.float)
     for m in 1..rank:
         if bins[m-1] != bins[m] and bins[m] != bins[m+1]:
             for k in int(bins[m-1])..<int(bins[m]):
@@ -108,3 +110,24 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
         fft0_avx(fft_size, 1, false, windowed, y)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
 
+proc istft*(data: Tensor[float], fft_size: int): Tensor[float] =
+    assert fft_size.isPowerOfTwo
+    let hop_size = fft_size div 2
+    let fft_half = fft_size div 2
+    let total_segments = (data.shape[0] - fft_size) div hop_size
+    let fn = complex(1.0/float(fft_size))
+
+    result = zeros[float]([total_segments, fft_half])
+    let window = hamming[float](fft_size)
+    var windowed = zeros[Complex[float]]([fft_size])
+    var y = fft_empty_array(windowed)
+    for i in 0..<total_segments:
+        let wl = hop_size * i
+        for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
+            windowed[j] = complex(val)
+            
+        windowed.apply(x => (x*fn).conjugate)
+        fft0_avx(fft_size, 1, false, windowed, y)
+        windowed.apply(x => x.conjugate)
+
+        result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])

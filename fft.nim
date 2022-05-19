@@ -1,6 +1,6 @@
 import math, complex, strutils
 import std/[sequtils, strformat, math]
-import vorbis, wavfile
+import audiofile/[vorbis, wavfile]
 import benchy
 import arraymancer
 import x86_simd/x86_avx
