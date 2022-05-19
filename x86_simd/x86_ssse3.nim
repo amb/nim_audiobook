@@ -16,9 +16,9 @@ when someGcc:
 const vcc64Bits = defined(vcc) and defined(x86_64)
 
 import x86_mmx
-import x86_sse
+# import x86_sse
 import x86_sse2
-import x86_sse3
+# import x86_sse3
 
 when not vcc64Bits:
   proc abs_pi8*(a: m64): m64

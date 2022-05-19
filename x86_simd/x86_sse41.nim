@@ -12,11 +12,11 @@ when someGcc:
   {.passC: "-msse -msse2 -msse3 -mssse3 -msse4".}
   {.passL: "-msse -msse2 -msse3 -mssse3 -msse4".}
 
-import x86_mmx
+# import x86_mmx
 import x86_sse
 import x86_sse2
-import x86_sse3
-import x86_ssse3
+# import x86_sse3
+# import x86_ssse3
 
 proc blendv_pd*(V1: m128d, V2: m128d, M: m128d): m128d
   {.importc: "_mm_blendv_pd ", header: "smmintrin.h".}

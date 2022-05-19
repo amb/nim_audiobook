@@ -12,13 +12,13 @@ when someGcc:
   {.passC: "-msse -msse2 -msse3 -mssse3 -msse4 -mavx".}
   {.passL: "-msse -msse2 -msse3 -mssse3 -msse4 -mavx".}
 
-import x86_mmx
+# import x86_mmx
 import x86_sse
 import x86_sse2
-import x86_sse3
-import x86_ssse3
-import x86_sse41
-import x86_sse42
+# import x86_sse3
+# import x86_ssse3
+# import x86_sse41
+# import x86_sse42
 
 type m256* {.importc: "__m256", header: "immintrin.h".} = object
 type m256d* {.importc: "__m256d", header: "immintrin.h".} = object

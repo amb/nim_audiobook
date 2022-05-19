@@ -12,11 +12,11 @@ when someGcc:
   {.passC: "-msse -msse2 -msse3 -mssse3 -msse4".}
   {.passL: "-msse -msse2 -msse3 -mssse3 -msse4".}
 
-import x86_mmx
-import x86_sse
+# import x86_mmx
+# import x86_sse
 import x86_sse2
-import x86_sse3
-import x86_ssse3
+# import x86_sse3
+# import x86_ssse3
 import x86_sse41
 
 proc cmpgt_epi64*(V1: m128i, V2: m128i): m128i

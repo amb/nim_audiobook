@@ -12,7 +12,7 @@ when someGcc:
   {.passC: "-msse -msse2 -msse3".}
   {.passL: "-msse -msse2 -msse3".}
 
-import x86_mmx
+# import x86_mmx
 import x86_sse
 import x86_sse2
 

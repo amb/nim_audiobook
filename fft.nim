@@ -1,10 +1,9 @@
-import math, complex, strutils
-import std/[sequtils, strformat, math]
-import audiofile/[vorbis, wavfile]
-import benchy
-import arraymancer
-import x86_simd/x86_avx
+import math, complex
+import arraymancer, x86_simd/x86_avx
 
+when isMainModule:
+    import benchy, strformat, strutils, sequtils
+    import audiofile/[vorbis, wavfile]
 
 # {.experimental: "parallel".}
 # import std/threadpool
@@ -67,7 +66,6 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
     let m: int = n div 2
     let theta0: float = 2.0*PI/float(n)
-    # let theta0: float = float(thetaLutSize)/float(n)
     if n == 1:
         if eo:
             for q in 0..<s:
@@ -76,8 +74,6 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
         for p in 0..<m:
             let fp = float(p)*theta0
             let wp = complex(cos(fp), -sin(fp))
-            # let fp = int(float(p)*theta0)
-            # let wp = thetaLut[fp]
             for q in 0..<s:
                 let a = x[q + s*(p+0)]
                 let b = x[q + s*(p+m)]
@@ -202,7 +198,7 @@ proc padPowerOfTwo*(arr: seq[float]): seq[float] =
         result.add(arr[0])
     assert result.len.isPowerOfTwo
 
-if isMainModule:
+when isMainModule:
     echo "Running main module..."
 
     let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
@@ -224,7 +220,7 @@ if isMainModule:
 
     var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it))
     echo "Sample len: ", fft_array_len(vsf)
-    var vsf2 = vsf
+    # var vsf2 = vsf
 
     var y = fft_empty_array(vsf)
     timeIt "fft":
@@ -234,7 +230,6 @@ if isMainModule:
     timeIt "fft_avx":
         # Faster when only -d:release or debug
         fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
-
 
     # Benchmark pocketFFT
     # var dOut = newSeq[Complex[float64]](vsf2.len)
