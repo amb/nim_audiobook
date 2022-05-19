@@ -18,15 +18,14 @@ import x86_simd/x86_avx
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
-proc mulpz(ab: m256d, xy: m256d): m256d =
+proc mulpz(ab: m256d, xy: m256d): m256d {.inline.} =
     ## AVX float64 complex number multiplication
     let aa = unpacklo_pd(ab, ab)
     let bb = unpackhi_pd(ab, ab)
     let yx = shuffle_pd(xy, xy, 5)
     return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
 
-# This is +20-50% improvement
-const thetaLutSize = 32
+const thetaLutSize = 2048
 const thetaLut = static:
     let step = 2.0*PI/float(thetaLutSize)
     var arr: array[thetaLutSize, array[2, float]]
@@ -37,6 +36,18 @@ const thetaLut = static:
     # for k, v in mpairs(arr):
     #     v = complex(cos(step * float(k)), -sin(step * float(k)))
     arr
+
+# thetaLutSize = 8
+# let (cval, sval) = case int(float(p)*thetaL0)
+# of 0: (1.0, -0.0)
+# of 1: (0.7071067811865476, -0.7071067811865475)
+# of 2: (0.0, -1.0)
+# of 3: (-0.7071067811865475, -0.7071067811865476)
+# of 4: (-1.0, 0.0)
+# of 5: (-0.7071067811865477, 0.7071067811865475)
+# of 6: (0.0, 1.0)
+# of 7: (0.7071067811865474, 0.7071067811865477)
+# else: (1.0, 1.0)
 
 type
     FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
@@ -119,30 +130,18 @@ proc fft0_avx*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
                 y[2*p+1] = (a - b) * wp
         else:
             for p in 0..<m:
-                # let fpl  = thetaLut[int(float(p)*thetaL0)]
-                # let cval = fpl[0]
-                # let sval = fpl[1]
+                let fpl  = thetaLut[int(float(p)*thetaL0)]
 
-                # thetaLutSize = 8
-                # let (cval, sval) = case int(float(p)*thetaL0)
-                # of 0: (1.0, -0.0)
-                # of 1: (0.7071067811865476, -0.7071067811865475)
-                # of 2: (0.0, -1.0)
-                # of 3: (-0.7071067811865475, -0.7071067811865476)
-                # of 4: (-1.0, 0.0)
-                # of 5: (-0.7071067811865477, 0.7071067811865475)
-                # of 6: (0.0, 1.0)
-                # of 7: (0.7071067811865474, 0.7071067811865477)
-                # else: (1.0, 1.0)
+                # let fp = float(p)*theta0
+                # let cval =  cos(fp)
+                # let sval = -sin(fp)
 
-                let fp = float(p)*theta0
-                let cval =  cos(fp)
-                let sval = -sin(fp)
                 let o0 = s*(p+0)
                 let o1 = s*(p+m)
                 let o2 = s*(2*p+0)
                 let o3 = s*(2*p+1)
-                let wp = setr_pd(cval, sval, cval, sval)
+                # let wp = setr_pd(cval, sval, cval, sval)
+                let wp = setr_pd(fpl[0], fpl[1], fpl[0], fpl[1])
                 for q in countup(0, s-1, 2):
                     let a = load_pd_256(x[q+o0].re.addr)
                     let b = load_pd_256(x[q+o1].re.addr)
@@ -158,6 +157,9 @@ proc fft_empty_array*(v: FFTArray): FFTArray =
         result = newSeq[Complex[float]](v.len)
     elif v is Tensor:
         result = zeros[Complex[float]](v.shape[0])
+
+proc fft_empty_array_complex*(v: int): FFTArray =
+    result = zeros[Complex[float]](v)
 
 proc fft_array_len*(v: FFTArray): int =
     result = 0

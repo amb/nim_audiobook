@@ -73,7 +73,8 @@ proc melToFreq*[T](mel: Tensor[T]): Tensor[T] =
 
 proc dbToAmplitude*[T](data: Tensor[T]): Tensor[T] = data.map(x => pow(10.0, x/20.0))
 proc amplitudeToDb*[T](data: Tensor[T]): Tensor[T] = data.map(x => log10(x) * 20.0) 
-proc clip*[T](data: Tensor[T], a, b: T): Tensor[T] = data.map(x => clamp(x, a, b))
+# Theres Arraymancer "clamp"
+# proc clip*[T](data: Tensor[T], a, b: T): Tensor[T] = data.map(x => clamp(x, a, b))
 
 # Same as Complex.phase really
 proc angle*[T: SomeFloat](z: Complex[T], degrees: bool = false): T = arctan2(z.im, z.re)
@@ -110,24 +111,36 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
         fft0_avx(fft_size, 1, false, windowed, y)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
 
-proc istft*(data: Tensor[float], fft_size: int): Tensor[float] =
-    assert fft_size.isPowerOfTwo
-    let hop_size = fft_size div 2
+proc istft*(data: Tensor[float]): Tensor[float] =
+    assert data.shape[1].isPowerOfTwo
+    let fft_size = data.shape[1] * 2
     let fft_half = fft_size div 2
-    let total_segments = (data.shape[0] - fft_size) div hop_size
-    let fn = complex(1.0/float(fft_size))
+    let hop_size = fft_half
+    let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
+    # let total_segments = (data_len - fft_size) div hop_size
+    let total_segments = data.shape[0]
 
-    result = zeros[float]([total_segments, fft_half])
-    let window = hamming[float](fft_size)
-    var windowed = zeros[Complex[float]]([fft_size])
-    var y = fft_empty_array(windowed)
+    var temp = zeros[float](data_len)
+
+    # inverse hamming (can do because it's always > 0.0)
+    let invert_window = hamming[float](fft_size).map(x => 1.0/x)
+    var windowed = zeros[Complex[float]](fft_size)
+
+    let fn = complex(1.0/float(fft_size))
+    var y = fft_empty_array_complex(fft_size)
     for i in 0..<total_segments:
-        let wl = hop_size * i
-        for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
-            windowed[j] = complex(val)
-            
+        windowed[0..<fft_half] = data[i, _].map(x => complex(x)).reshape([fft_half])
+
+        # Copy FFT reverse side
+        for j in fft_half..<fft_size:
+            windowed[j] = windowed[fft_size-j]
+
+        # ifft
         windowed.apply(x => (x*fn).conjugate)
         fft0_avx(fft_size, 1, false, windowed, y)
         windowed.apply(x => x.conjugate)
 
-        result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
+        let wl = hop_size * i
+        temp[wl..<(wl+fft_size)] = temp[wl..<(wl+fft_size)] + (abs(windowed) *. invert_window)
+
+    return temp
