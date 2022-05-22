@@ -1,5 +1,6 @@
 import math, complex
-import arraymancer, x86_simd/x86_avx
+import arraymancer
+#, x86_simd/x86_avx
 
 when isMainModule:
     import benchy, strformat, strutils, sequtils
@@ -8,7 +9,7 @@ when isMainModule:
 # {.experimental: "parallel".}
 # import std/threadpool
 
-# import pocketfft/pocketfft
+import pocketfft/pocketfft
 
 # import fftw3
 
@@ -17,12 +18,12 @@ when isMainModule:
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
-proc mulpz(ab: m256d, xy: m256d): m256d {.inline.} =
-    ## AVX float64 complex number multiplication
-    let aa = unpacklo_pd(ab, ab)
-    let bb = unpackhi_pd(ab, ab)
-    let yx = shuffle_pd(xy, xy, 5)
-    return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
+# proc mulpz(ab: m256d, xy: m256d): m256d {.inline.} =
+#     ## AVX float64 complex number multiplication
+#     let aa = unpacklo_pd(ab, ab)
+#     let bb = unpackhi_pd(ab, ab)
+#     let yx = shuffle_pd(xy, xy, 5)
+#     return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
 
 const thetaLutSize = 2048
 const thetaLut = static:
@@ -82,71 +83,71 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
         fft0(n div 2, 2 * s, not eo, y, x)
 
-proc fft0_avx*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
-    ## Fast Fourier Transform
-    ##
-    ## Inputs:
-    ## - `n` Sequence length. **Must be power of two**
-    ## - `s` Stride
-    ## - `eo` x is output if eo == 0, y is output if eo == 1
-    ## - `x` Input sequence(or output sequence if eo == 0)
-    ## - `y` Work area(or output sequence if eo == 1)
-    ##
-    ## Returns:
-    ## - Output sequence, either `x` or `y`
+# proc fft0_avx*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+#     ## Fast Fourier Transform
+#     ##
+#     ## Inputs:
+#     ## - `n` Sequence length. **Must be power of two**
+#     ## - `s` Stride
+#     ## - `eo` x is output if eo == 0, y is output if eo == 1
+#     ## - `x` Input sequence(or output sequence if eo == 0)
+#     ## - `y` Work area(or output sequence if eo == 1)
+#     ##
+#     ## Returns:
+#     ## - Output sequence, either `x` or `y`
     
-    # {.emit: """CALLGRIND_START_INSTRUMENTATION; CALLGRIND_TOGGLE_COLLECT;""".}
+#     # {.emit: """CALLGRIND_START_INSTRUMENTATION; CALLGRIND_TOGGLE_COLLECT;""".}
 
-    let m = n div 2
+#     let m = n div 2
 
-    if n == 2:
-        if eo:
-            for q in 0..<s:
-                let a = x[q + 0]
-                let b = x[q + s]
-                y[q + 0] = a + b
-                y[q + s] = a - b
-        else:
-            for q in 0..<s:
-                let a = x[q + 0]
-                let b = x[q + s]
-                x[q + 0] = a + b
-                x[q + s] = a - b
+#     if n == 2:
+#         if eo:
+#             for q in 0..<s:
+#                 let a = x[q + 0]
+#                 let b = x[q + s]
+#                 y[q + 0] = a + b
+#                 y[q + s] = a - b
+#         else:
+#             for q in 0..<s:
+#                 let a = x[q + 0]
+#                 let b = x[q + s]
+#                 x[q + 0] = a + b
+#                 x[q + s] = a - b
 
-    elif n >= 4:
-        let theta0: float = 2.0*PI/float(n)
-        let thetaL0: float = float(thetaLutSize)/float(n)
-        if s == 1:
-            for p in 0..<m:
-                let fp = float(p)*theta0
-                let wp = complex(cos(fp), -sin(fp))
-                let a = x[p+0]
-                let b = x[p+m]
-                y[2*p+0] =  a + b
-                y[2*p+1] = (a - b) * wp
-        else:
-            for p in 0..<m:
-                let fpl  = thetaLut[int(float(p)*thetaL0)]
+#     elif n >= 4:
+#         let theta0: float = 2.0*PI/float(n)
+#         let thetaL0: float = float(thetaLutSize)/float(n)
+#         if s == 1:
+#             for p in 0..<m:
+#                 let fp = float(p)*theta0
+#                 let wp = complex(cos(fp), -sin(fp))
+#                 let a = x[p+0]
+#                 let b = x[p+m]
+#                 y[2*p+0] =  a + b
+#                 y[2*p+1] = (a - b) * wp
+#         else:
+#             for p in 0..<m:
+#                 let fpl  = thetaLut[int(float(p)*thetaL0)]
 
-                # let fp = float(p)*theta0
-                # let cval =  cos(fp)
-                # let sval = -sin(fp)
+#                 # let fp = float(p)*theta0
+#                 # let cval =  cos(fp)
+#                 # let sval = -sin(fp)
 
-                let o0 = s*(p+0)
-                let o1 = s*(p+m)
-                let o2 = s*(2*p+0)
-                let o3 = s*(2*p+1)
-                # let wp = setr_pd(cval, sval, cval, sval)
-                let wp = setr_pd(fpl[0], fpl[1], fpl[0], fpl[1])
-                for q in countup(0, s-1, 2):
-                    let a = load_pd_256(x[q+o0].re.addr)
-                    let b = load_pd_256(x[q+o1].re.addr)
-                    store_pd(y[q+o2].re.addr,           add_pd(a, b))
-                    store_pd(y[q+o3].re.addr, mulpz(wp, sub_pd(a, b)))
+#                 let o0 = s*(p+0)
+#                 let o1 = s*(p+m)
+#                 let o2 = s*(2*p+0)
+#                 let o3 = s*(2*p+1)
+#                 # let wp = setr_pd(cval, sval, cval, sval)
+#                 let wp = setr_pd(fpl[0], fpl[1], fpl[0], fpl[1])
+#                 for q in countup(0, s-1, 2):
+#                     let a = load_pd_256(x[q+o0].re.addr)
+#                     let b = load_pd_256(x[q+o1].re.addr)
+#                     store_pd(y[q+o2].re.addr,           add_pd(a, b))
+#                     store_pd(y[q+o3].re.addr, mulpz(wp, sub_pd(a, b)))
 
-        fft0_avx(n div 2, s * 2, not eo, y, x)
+#         fft0_avx(n div 2, s * 2, not eo, y, x)
 
-    # {.emit: """CALLGRIND_TOGGLE_COLLECT; CALLGRIND_STOP_INSTRUMENTATION;""".}
+#     # {.emit: """CALLGRIND_TOGGLE_COLLECT; CALLGRIND_STOP_INSTRUMENTATION;""".}
 
 proc fft_empty_array*(v: FFTArray): FFTArray =
     when v is seq:
@@ -174,7 +175,7 @@ proc fft*(x: var FFTArray) =
     assert alen.isPowerOfTwo()
 
     var y = fft_empty_array(x)
-    fft0_avx(alen, 1, false, x, y)
+    fft0(alen, 1, false, x, y)
 
 proc ifft*(x: var FFTArray) =
     # n : sequence length
@@ -186,7 +187,7 @@ proc ifft*(x: var FFTArray) =
         x[p] = (x[p]*fn).conjugate
 
     var y = fft_empty_array(x)
-    fft0_avx(n, 1, false, x, y)
+    fft0(n, 1, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
@@ -227,17 +228,17 @@ when isMainModule:
         # Non-AVX is faster when -d:lto
         fft0(fft_array_len(vsf), 1, false, vsf, y)
 
-    timeIt "fft_avx":
-        # Faster when only -d:release or debug
-        fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
+    # timeIt "fft_avx":
+    #     # Faster when only -d:release or debug
+    #     fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
 
     # Benchmark pocketFFT
-    # var dOut = newSeq[Complex[float64]](vsf2.len)
-    # let dInDesc = DataDesc[Complex[float64]].init(vsf2[0].addr, [vsf2.len])
+    # var dOut = newSeq[Complex[float64]](vsf.len)
+    # let dInDesc = DataDesc[Complex[float64]].init(vsf[0].addr, [vsf.len])
     # var dOutDesc = DataDesc[Complex[float64]].init(dOut[0].addr, [dOut.len])
-    # let fft = FFTDesc[float64].init(axes=[0], forward=true)
+    # var fftd = FFTDesc[float64].init(axes=[0], forward=true)
     # timeIt "pocketfft":
-    #     fft.apply(dOutDesc, dInDesc)
+    #     fftd.apply(dOutDesc, dInDesc)
 
     # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
