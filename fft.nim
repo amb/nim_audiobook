@@ -1,5 +1,5 @@
 import math, complex
-import arraymancer
+# import arraymancer
 #, x86_simd/x86_avx
 
 when isMainModule:
@@ -9,7 +9,7 @@ when isMainModule:
 # {.experimental: "parallel".}
 # import std/threadpool
 
-import pocketfft/pocketfft
+# import pocketfft/pocketfft
 
 # import fftw3
 
@@ -50,7 +50,7 @@ const thetaLut = static:
 # else: (1.0, 1.0)
 
 type
-    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+    FFTArray = seq[Complex[float]] #| Tensor[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -66,15 +66,18 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## - Output sequence, either `x` or `y`
 
     let m: int = n div 2
-    let theta0: float = 2.0*PI/float(n)
+    # let theta0: float = 2.0*PI/float(n)
+    let thetaL0: float = float(thetaLutSize)/float(n)
     if n == 1:
         if eo:
             for q in 0..<s:
                 y[q] = x[q]
     else:
         for p in 0..<m:
-            let fp = float(p)*theta0
-            let wp = complex(cos(fp), -sin(fp))
+            # let fp = float(p)*theta0
+            # let wp = complex(cos(fp), -sin(fp))
+            let fpl = thetaLut[int(float(p)*thetaL0)]
+            let wp  = complex(fpl[0], fpl[1])
             for q in 0..<s:
                 let a = x[q + s*(p+0)]
                 let b = x[q + s*(p+m)]
@@ -152,18 +155,18 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 proc fft_empty_array*(v: FFTArray): FFTArray =
     when v is seq:
         result = newSeq[Complex[float]](v.len)
-    elif v is Tensor:
-        result = zeros[Complex[float]](v.shape[0])
+    # elif v is Tensor:
+    #     result = zeros[Complex[float]](v.shape[0])
 
-proc fft_empty_array_complex*(v: int): FFTArray =
-    result = zeros[Complex[float]](v)
+# proc fft_empty_array_complex*(v: int): FFTArray =
+#     result = zeros[Complex[float]](v)
 
 proc fft_array_len*(v: FFTArray): int =
     result = 0
     when v is seq:
         result = v.len
-    elif v is Tensor:
-        result = v.shape[0]
+    # elif v is Tensor:
+    #     result = v.shape[0]
 
 proc fft*(x: var FFTArray) =
     # n : sequence length
@@ -219,22 +222,23 @@ when isMainModule:
     var tsr = ts.mapIt(round(it.re, 4))
     doAssert tsr == tarr
 
-    var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo.mapIt(complex(it))
-    echo "Sample len: ", fft_array_len(vsf)
+    var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
+    var vsf2 = vsf.mapIt(complex(it))
+    echo "Sample len: ", fft_array_len(vsf2)
     # var vsf2 = vsf
 
-    var y = fft_empty_array(vsf)
+    var y = fft_empty_array(vsf2)
     timeIt "fft":
         # Non-AVX is faster when -d:lto
-        fft0(fft_array_len(vsf), 1, false, vsf, y)
+        fft0(fft_array_len(vsf2), 1, false, vsf2, y)
 
     # timeIt "fft_avx":
     #     # Faster when only -d:release or debug
     #     fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
 
     # Benchmark pocketFFT
-    # var dOut = newSeq[Complex[float64]](vsf.len)
-    # let dInDesc = DataDesc[Complex[float64]].init(vsf[0].addr, [vsf.len])
+    # var dOut = newSeq[Complex[float64]](vsf2.len)
+    # let dInDesc = DataDesc[Complex[float64]].init(vsf2[0].addr, [vsf2.len])
     # var dOutDesc = DataDesc[Complex[float64]].init(dOut[0].addr, [dOut.len])
     # var fftd = FFTDesc[float64].init(axes=[0], forward=true)
     # timeIt "pocketfft":
