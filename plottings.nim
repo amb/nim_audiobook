@@ -1,5 +1,8 @@
 import arraymancer, pixie, chroma, sugar, strutils, strformat, sequtils, math, base64
 
+const ok_purple = polarOklab(color(1.0, 0.0, 1.0, 1.0))
+const ok_yellow = polarOklab(color(1.0, 1.0, 0.0, 1.0))
+
 proc magma(x: float): Color =
     # TODO: colors don't seem to behave the way I think they do
     # var c = polarOklab(i*255.0, ok_purple.C * (1.0 - x) + ok_yellow.C * x, ok_purple.h * (1.0 - x) + ok_yellow.h * x)

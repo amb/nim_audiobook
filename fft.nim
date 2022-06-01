@@ -1,10 +1,10 @@
-import math, complex
-# import arraymancer
+import math, complex, arraymancer
 #, x86_simd/x86_avx
 
 when isMainModule:
     import benchy, strformat, strutils, sequtils
     import audiofile/[vorbis, wavfile]
+    import plottings, nimview
 
 # {.experimental: "parallel".}
 # import std/threadpool
@@ -50,7 +50,7 @@ const thetaLut = static:
 # else: (1.0, 1.0)
 
 type
-    FFTArray = seq[Complex[float]] #| Tensor[Complex[float]]
+    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -155,18 +155,18 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 proc fft_empty_array*(v: FFTArray): FFTArray =
     when v is seq:
         result = newSeq[Complex[float]](v.len)
-    # elif v is Tensor:
-    #     result = zeros[Complex[float]](v.shape[0])
+    elif v is Tensor:
+        result = zeros[Complex[float]](v.shape[0])
 
-# proc fft_empty_array_complex*(v: int): FFTArray =
-#     result = zeros[Complex[float]](v)
+proc fft_empty_array_complex*(v: int): FFTArray =
+    result = zeros[Complex[float]](v)
 
 proc fft_array_len*(v: FFTArray): int =
     result = 0
     when v is seq:
         result = v.len
-    # elif v is Tensor:
-    #     result = v.shape[0]
+    elif v is Tensor:
+        result = v.shape[0]
 
 proc fft*(x: var FFTArray) =
     # n : sequence length
@@ -231,10 +231,6 @@ when isMainModule:
     timeIt "fft":
         # Non-AVX is faster when -d:lto
         fft0(fft_array_len(vsf2), 1, false, vsf2, y)
-
-    # timeIt "fft_avx":
-    #     # Faster when only -d:release or debug
-    #     fft0_avx(fft_array_len(vsf), 1, false, vsf, y)
 
     # Benchmark pocketFFT
     # var dOut = newSeq[Complex[float64]](vsf2.len)

@@ -1,7 +1,7 @@
-import arraymancer, pixie, sugar, sequtils, math, base64, fft
+import arraymancer, sugar, sequtils, math, fft
 
-const ok_purple = polarOklab(color(1.0, 0.0, 1.0, 1.0))
-const ok_yellow = polarOklab(color(1.0, 1.0, 0.0, 1.0))
+when isMainModule:
+    import plottings
 
 proc basicSine*(srate: int): Tensor[float] =
     let srate = float(srate)
@@ -62,7 +62,7 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
         let wl = hop_size * i
         for (j, val) in enumerate(data[wl..<(wl+fft_size)] *. window):
             windowed[j] = complex(val)
-        fft0_avx(fft_size, 1, false, windowed, y)
+        fft0(fft_size, 1, false, windowed, y)
         result[i, _] = (abs(windowed)[0..<fft_half]).reshape([1, fft_half])
 
 proc istft*(data: Tensor[float]): Tensor[float] =
@@ -91,10 +91,28 @@ proc istft*(data: Tensor[float]): Tensor[float] =
 
         # ifft
         windowed.apply(x => (x*fn).conjugate)
-        fft0_avx(fft_size, 1, false, windowed, y)
+        fft0(fft_size, 1, false, windowed, y)
         windowed.apply(x => x.conjugate)
 
         let wl = hop_size * i
         temp[wl..<(wl+fft_size)] = temp[wl..<(wl+fft_size)] + (abs(windowed) *. invert_window)
 
     return temp
+
+
+when isMainModule:
+    echo "Running main module"
+
+    # let fft_size = 2048
+    # let mag_spectrum = wave.toFloat.toTensor().stft(fft_size)
+
+    # let pow_spectrum = mag_spectrum.square / fft_size.float
+    # let mel_spectrum = mag_spectrum * melBanks(256, fft_size, wave.freq, wave.freq.float/2.0).transpose
+    # html Image(mel_spectrum.amplitudeToDb.clip(-40.0, 200.0).plot2DArray)
+
+    # Audio(wave.toFloat, wave.freq, false)
+
+    # let inverse_stft = istft(mag_spectrum)
+    # html Image(newImage(500,100).plot1D(inverse_stft.toSeq))
+    # html Image(newImage(500,100).plot1D(wave.toFloat))
+    # html Image(mag_spectrum.amplitudeToDb.clamp(-40.0, 200.0).plot2DArray)

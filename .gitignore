@@ -1,5 +1,5 @@
 *.ipynb_*
 *_test
 fft
-
+*.exe
 profile_results.txt
