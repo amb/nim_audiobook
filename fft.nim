@@ -4,7 +4,7 @@ import math, complex, arraymancer
 when isMainModule:
     import benchy, strformat, strutils, sequtils
     import audiofile/[vorbis, wavfile]
-    import plottings, nimview
+    # import plottings, nimview
 
 # {.experimental: "parallel".}
 # import std/threadpool
@@ -25,17 +25,19 @@ when isMainModule:
 #     let yx = shuffle_pd(xy, xy, 5)
 #     return addsub_pd(mul_pd(aa, xy), mul_pd(bb, yx))
 
-const thetaLutSize = 2048
-const thetaLut = static:
-    let step = 2.0*PI/float(thetaLutSize)
-    var arr: array[thetaLutSize, array[2, float]]
-    for k, v in mpairs(arr):
-        v[0] = cos(step * float(k))
-        v[1] = -sin(step * float(k))
-    # var arr: array[thetaLutSize, Complex[float]]
-    # for k, v in mpairs(arr):
-    #     v = complex(cos(step * float(k)), -sin(step * float(k)))
-    arr
+when defined(fftSpeedy):
+    # 2^11
+    const thetaLutSize = 2048
+    const thetaLut = static:
+        let step = 2.0*PI/float(thetaLutSize)
+        var arr: array[thetaLutSize, array[2, float]]
+        for k, v in mpairs(arr):
+            v[0] = cos(step * float(k))
+            v[1] = -sin(step * float(k))
+        # var arr: array[thetaLutSize, Complex[float]]
+        # for k, v in mpairs(arr):
+        #     v = complex(cos(step * float(k)), -sin(step * float(k)))
+        arr
 
 # thetaLutSize = 8
 # let (cval, sval) = case int(float(p)*thetaL0)
@@ -52,7 +54,7 @@ const thetaLut = static:
 type
     FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
 
-proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -65,26 +67,36 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Returns:
     ## - Output sequence, either `x` or `y`
 
+    ## n and s must always be powers of 2
+
+    assert n.isPowerOfTwo
     let m: int = n div 2
-    # let theta0: float = 2.0*PI/float(n)
-    let thetaL0: float = float(thetaLutSize)/float(n)
+    let s = 1 shl sp
+    assert s.isPowerOfTwo
+
+    when not defined(fftSpeedy):
+        let theta0: float = 2.0*PI/float(n)
+
     if n == 1:
         if eo:
             for q in 0..<s:
                 y[q] = x[q]
     else:
         for p in 0..<m:
-            # let fp = float(p)*theta0
-            # let wp = complex(cos(fp), -sin(fp))
-            let fpl = thetaLut[int(float(p)*thetaL0)]
-            let wp  = complex(fpl[0], fpl[1])
+            when defined(fftSpeedy):
+                # let fpl = thetaLut[(p shl 11) div n]
+                let fpl = thetaLut[(p*thetaLutSize) div n]
+                let wp  = complex(fpl[0], fpl[1])
+            else:
+                let fp = float(p)*theta0
+                let wp = complex(cos(fp), -sin(fp))
             for q in 0..<s:
                 let a = x[q + s*(p+0)]
                 let b = x[q + s*(p+m)]
                 y[q + s*(2*p+0)] =  a + b
                 y[q + s*(2*p+1)] = (a - b) * wp
 
-        fft0(n div 2, 2 * s, not eo, y, x)
+        fft0(n div 2, sp+1, not eo, y, x)
 
 # proc fft0_avx*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 #     ## Fast Fourier Transform
@@ -162,11 +174,11 @@ proc fft_empty_array_complex*(v: int): FFTArray =
     result = zeros[Complex[float]](v)
 
 proc fft_array_len*(v: FFTArray): int =
-    result = 0
     when v is seq:
-        result = v.len
+        var l: int = v.len
     elif v is Tensor:
-        result = v.shape[0]
+        var l: int = v.shape[0]
+    return l
 
 proc fft*(x: var FFTArray) =
     # n : sequence length
@@ -178,7 +190,7 @@ proc fft*(x: var FFTArray) =
     assert alen.isPowerOfTwo()
 
     var y = fft_empty_array(x)
-    fft0(alen, 1, false, x, y)
+    fft0(alen, 0, false, x, y)
 
 proc ifft*(x: var FFTArray) =
     # n : sequence length
@@ -190,7 +202,7 @@ proc ifft*(x: var FFTArray) =
         x[p] = (x[p]*fn).conjugate
 
     var y = fft_empty_array(x)
-    fft0(n, 1, false, x, y)
+    fft0(n, 0, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
@@ -203,7 +215,7 @@ proc padPowerOfTwo*(arr: seq[float]): seq[float] =
     assert result.len.isPowerOfTwo
 
 when isMainModule:
-    echo "Running main module..."
+    echo "Running fft.nim"
 
     let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
                 -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
@@ -222,15 +234,16 @@ when isMainModule:
     var tsr = ts.mapIt(round(it.re, 4))
     doAssert tsr == tarr
 
-    var vsf = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
-    var vsf2 = vsf.mapIt(complex(it))
-    echo "Sample len: ", fft_array_len(vsf2)
+    var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
+    var caudio = audio.mapIt(complex(it))
+    echo "Sample len: ", fft_array_len(caudio)
     # var vsf2 = vsf
 
-    var y = fft_empty_array(vsf2)
+    var y = fft_empty_array(caudio)
+    let caudio_len = fft_array_len(caudio)
     timeIt "fft":
         # Non-AVX is faster when -d:lto
-        fft0(fft_array_len(vsf2), 1, false, vsf2, y)
+        fft0(caudio_len, 0, false, caudio, y)
 
     # Benchmark pocketFFT
     # var dOut = newSeq[Complex[float64]](vsf2.len)
@@ -248,3 +261,5 @@ when isMainModule:
     
     # import nimprof
     # nim c -r -d:release --profiler:on --stackTrace:on fft.nim  
+
+    # fft ............................... 17.335 ms     17.770 ms    ±0.333   x280

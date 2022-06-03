@@ -101,7 +101,7 @@ proc istft*(data: Tensor[float]): Tensor[float] =
 
 
 when isMainModule:
-    echo "Running main module"
+    echo "Running spectrum.nim"
 
     # let fft_size = 2048
     # let mag_spectrum = wave.toFloat.toTensor().stft(fft_size)
