@@ -5,11 +5,7 @@ when isMainModule:
     import audiofile/[vorbis, wavfile]
     # import plottings, nimview
 
-# {.experimental: "parallel".}
-# import std/threadpool
-
 # import pocketfft/pocketfft
-# import fftw3
 
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html

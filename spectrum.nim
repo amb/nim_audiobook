@@ -1,5 +1,8 @@
 import arraymancer, sugar, sequtils, math, fft
 
+# {.experimental: "parallel".}
+# import std/threadpool
+
 when isMainModule:
     import plottings
 
