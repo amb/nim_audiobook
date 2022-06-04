@@ -27,6 +27,8 @@ proc melToFreq*[T](mel: T): T = 700.0 * (pow(10.0, mel / 2595.0) - 1.0)
 proc melToFreq*[T](mel: Tensor[T]): Tensor[T] = 
     return 700.0 * ((mel / 2595.0).map(x => pow(10.0, x)) -. 1.0)
 
+# TODO: Replace pow with ^.
+
 proc dbToAmplitude*[T](data: Tensor[T]): Tensor[T] = data.map(x => pow(10.0, x/20.0))
 proc amplitudeToDb*[T](data: Tensor[T]): Tensor[T] = data.map(x => log10(x) * 20.0) 
 
