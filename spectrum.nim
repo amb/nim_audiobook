@@ -1,10 +1,10 @@
-import arraymancer, sugar, sequtils, math, fft
+import arraymancer, sugar, sequtils, math, fft, random
 
 # {.experimental: "parallel".}
 # import std/threadpool
 
 when isMainModule:
-    import plottings, audiofile/[vorbis, wavfile], benchy
+    import plottings, audiofile/[vorbis, wavfile], benchy, strformat
 
 proc basicSine*(srate: int): Tensor[float] =
     let srate = float(srate)
@@ -103,33 +103,63 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[Complex[float]] =
 proc istft0*(data: Tensor[Complex[float]], ds: STFT_DS_ref) =
     # let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
     # let total_segments = data.shape[0]
-    let rsize = complex(1.0/float(ds.fft_size))
+    let rsize = complex(1.0/float(ds.data_size))
+
+    for i in 0..<ds.wave.shape[0]:
+        ds.wave[i] = 0.0
+
     for i in 0..<ds.total_segments:
         let wl = ds.hop_size * i
         ds.buffer_A = data[i, _].reshape(ds.fft_size)
-        # ds.buffer_A.apply(x => (x*rsize).conjugate)
+
         ds.buffer_A.apply_inline((x*rsize).conjugate)
         fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
         ds.buffer_A.apply_inline(x.conjugate)
-        ds.wave[wl..<(wl+ds.fft_size)] = ds.buffer_A.map_inline(x.re)
+
+        ds.wave[wl..<(wl+ds.fft_size)] = ds.wave[wl..<(wl+ds.fft_size)] + 
+            (ds.buffer_A.map_inline(x.re))
+            # (ds.buffer_A.map_inline(x.re) *. ds.windowing_function)
 
 proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
     let fft_size = mag_spec.shape[1]
     let hop_size = fft_size div 2
-    let samples_size = mag_spec.shape[0] * hop_size + (fft_size - hop_size)
+    let samples_size = mag_spec.shape[0] * hop_size + fft_size
     var ds = newStft(samples_size, fft_size)
     var guess = randomTensor(samples_size, 1.0)
+    var prev_guess = guess
     let cone = complex(1.0, 0.0)
-    let mag_comp = mag_spec.map(x => complex(x))
-    for n in countdown(iterations, 0):
-        stft0(guess, ds)
-        let rec_angle = ds.stft.map(x => x.phase)
-        let prop_spec = mag_comp * rec_angle.map(x => exp(cone * x))
-        istft0(prop_spec, ds)
+    # Create a complex matrix, insert you magnitude spectrogram as a real layer, 
+    # and create imaginary layer of uniform noise 
+    # (Now you have amplitude information but still no phase).
+    var mag_comp: Tensor[Complex[float]] = mag_spec.map(x => complex(x, rand(2.0) - 1.0))
+    for n in countup(1, iterations):
+        # Perform ISTFT on it (Now you have time series based on amplitude information only).
+        istft0(mag_comp, ds)
+        prev_guess = guess
         guess = ds.wave
-        echo n
 
-        # echo fmt"Iteration: {n}, RMSE: {sqrt(sum())}"
+        # The guess seems to quickly vanish to nothingness without normalization
+        let npar = max(abs(guess.min), abs(guess.max))
+        guess = guess / npar
+
+        # Calculate STFT of obtained time series 
+        # (Now you extract a little bit of phase information from the time series, 
+        # but it’s still highly imperfect because time series was imperfect).
+        stft0(guess, ds)
+
+        # In that STFT, which is a complex matrix, 
+        # change real layer to your original magnitude spectrogram 
+        # (Now you have complex spectrogram with unchanged amplitude information
+        # from your starting mag spec, but now you have a little bit of useful phase information).
+        for i in 0..<mag_comp.shape[0]:
+            for j in 0..<mag_comp.shape[1]:
+                mag_comp[i, j].im = ds.stft[i, j].im
+
+        # Iterate until satisfied, this should converge
+        let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
+        echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}"
+
+    return guess
 
 
 when isMainModule:
@@ -144,18 +174,4 @@ when isMainModule:
     #     mag_spectrum.stft0(ds)
 
     let mag_spec = wave_tensor.stft(fft_size).abs
-    discard griffin_lim(mag_spec, 10)
-
-    # let fft_size = 2048
-    # let mag_spectrum = wave.toFloat.toTensor().stft(fft_size)
-
-    # let pow_spectrum = mag_spectrum.square / fft_size.float
-    # let mel_spectrum = mag_spectrum * melBanks(256, fft_size, wave.freq, wave.freq.float/2.0).transpose
-    # html Image(mel_spectrum.amplitudeToDb.clip(-40.0, 200.0).plot2DArray)
-
-    # Audio(wave.toFloat, wave.freq, false)
-
-    # let inverse_stft = istft(mag_spectrum)
-    # html Image(newImage(500,100).plot1D(inverse_stft.toSeq))
-    # html Image(newImage(500,100).plot1D(wave.toFloat))
-    # html Image(mag_spectrum.amplitudeToDb.clamp(-40.0, 200.0).plot2DArray)
+    discard griffin_lim(mag_spec, 7)

@@ -1,6 +1,7 @@
 *.ipynb_*
 *_test
 fft
+spectrum
 *.exe
 profile_results.txt
 *.html
