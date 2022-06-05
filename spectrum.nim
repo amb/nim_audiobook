@@ -32,12 +32,6 @@ proc melToFreq*[T](mel: Tensor[T]): Tensor[T] =
 proc dbToAmplitude*[T](data: Tensor[T]): Tensor[T] = data.map(x => pow(10.0, x/20.0))
 proc amplitudeToDb*[T](data: Tensor[T]): Tensor[T] = data.map(x => log10(x) * 20.0) 
 
-# Theres Arraymancer "clamp"
-# proc clip*[T](data: Tensor[T], a, b: T): Tensor[T] = data.map(x => clamp(x, a, b))
-
-# Same as Complex.phase really
-# proc angle*[T: SomeFloat](z: Complex[T], degrees: bool = false): T = arctan2(z.im, z.re)
-
 proc melPts*[T](r: int, fl, fh: T): Tensor[T] = linspace(fl.freqToMel, fh.freqToMel, r+2).melToFreq
 proc melBanks*(rank, fft_size, srate: int, fh: float): Tensor[float] =
     result = zeros[float](rank, fft_size div 2)
@@ -53,6 +47,7 @@ proc melBanks*(rank, fft_size, srate: int, fh: float): Tensor[float] =
             result[m-1, int(bins[m])] = 1.0
 
 type
+    # TODO: perhaps separate ISTFT and STFT data structs
     STFT_DS_ref* = ref STFT_DS
     STFT_DS* = object
         fft_size*: int
@@ -81,19 +76,13 @@ proc newStft*(data_len: int, fft_size: int): STFT_DS_ref =
     return ds
 
 proc stft0*(data: Tensor[float], ds: STFT_DS_ref) =
-    # let fft_half = ds.fft_size div 2
     for i in 0..<ds.total_segments:
         let wl = ds.hop_size * i
-        # TODO: arraymancer version is slightly slower
-        # ds.buffer_A = (data[wl..<(wl+ds.fft_size)] *. ds.windowing_function)
-        #   .map_inline(complex(x))
         for j in 0..<ds.fft_size:
             ds.buffer_A[j] = complex(data[wl+j] * ds.windowing_function[j])
         fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
         for j in 0..<ds.fft_size:
             ds.stft[i, j] = ds.buffer_A[j]
-            # ds.stft[i, j] = abs(ds.buffer_A[j])
-        # ds.output[i, _] = (abs(ds.buffer_A)[0..<fft_half]).reshape([1, fft_half])
 
 proc stft*(data: Tensor[float], fft_size: int): Tensor[Complex[float]] =
     var ds = newStft(data.shape[0], fft_size)
@@ -103,31 +92,30 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[Complex[float]] =
 proc istft0*(data: Tensor[Complex[float]], ds: STFT_DS_ref) =
     # let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
     # let total_segments = data.shape[0]
-    let rsize = complex(1.0/float(ds.data_size))
 
+    # let rsize = complex(1.0/float(ds.data_size))
+    let rsize = complex(1.0/float(ds.fft_size))
     for i in 0..<ds.wave.shape[0]:
         ds.wave[i] = 0.0
-
     for i in 0..<ds.total_segments:
         let wl = ds.hop_size * i
         ds.buffer_A = data[i, _].reshape(ds.fft_size)
-
         ds.buffer_A.apply_inline((x*rsize).conjugate)
         fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
-        ds.buffer_A.apply_inline(x.conjugate)
-
         ds.wave[wl..<(wl+ds.fft_size)] = ds.wave[wl..<(wl+ds.fft_size)] + 
-            (ds.buffer_A.map_inline(x.re))
+            (ds.buffer_A.map_inline(x.conjugate.re))
             # (ds.buffer_A.map_inline(x.re) *. ds.windowing_function)
 
 proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
+    ## Discover the phase information of a magnitude only spectrogram
+    ## and output the original time series
     let fft_size = mag_spec.shape[1]
     let hop_size = fft_size div 2
     let samples_size = mag_spec.shape[0] * hop_size + fft_size
     var ds = newStft(samples_size, fft_size)
     var guess = randomTensor(samples_size, 1.0)
     var prev_guess = guess
-    let cone = complex(1.0, 0.0)
+
     # Create a complex matrix, insert you magnitude spectrogram as a real layer, 
     # and create imaginary layer of uniform noise 
     # (Now you have amplitude information but still no phase).
@@ -139,8 +127,9 @@ proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
         guess = ds.wave
 
         # The guess seems to quickly vanish to nothingness without normalization
+        # TODO: Pretty sure this is a hack
         let npar = max(abs(guess.min), abs(guess.max))
-        guess = guess / npar
+        guess = (guess / npar) * 0.92
 
         # Calculate STFT of obtained time series 
         # (Now you extract a little bit of phase information from the time series, 
@@ -156,8 +145,8 @@ proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
                 mag_comp[i, j].im = ds.stft[i, j].im
 
         # Iterate until satisfied, this should converge
-        let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
-        echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}"
+        # let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
+        # echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}, Mag: {npar:.4f}"
 
     return guess
 
@@ -174,4 +163,6 @@ when isMainModule:
     #     mag_spectrum.stft0(ds)
 
     let mag_spec = wave_tensor.stft(fft_size).abs
-    discard griffin_lim(mag_spec, 7)
+    echo wave_tensor.shape
+    timeIt "griffin_lim", 1:
+        discard griffin_lim(mag_spec, 7)
