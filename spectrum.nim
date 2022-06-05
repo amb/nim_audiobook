@@ -57,76 +57,79 @@ type
     STFT_DS* = object
         fft_size*: int
         hop_size*: int
+        data_size*: int
         total_segments*: int
         windowing_function*: Tensor[float]
         buffer_A*: Tensor[Complex[float]]
         buffer_B*: Tensor[Complex[float]]
-        output*: Tensor[float]
+        stft*: Tensor[Complex[float]]
+        wave*: Tensor[float]
 
 
-proc newStft*(data: Tensor[float], fft_size: int): STFT_DS_ref =
+proc newStft*(data_len: int, fft_size: int): STFT_DS_ref =
     assert fft_size.isPowerOfTwo
     var ds = STFT_DS_ref()
     ds.fft_size = fft_size
     ds.hop_size = fft_size div 2
-    ds.total_segments = (data.shape[0] - fft_size) div ds.hop_size
+    ds.data_size = data_len
+    ds.total_segments = (data_len - fft_size) div ds.hop_size
     ds.windowing_function = hamming[float](fft_size)
     ds.buffer_A = zeros[Complex[float]]([fft_size])
     ds.buffer_B = zeros[Complex[float]]([fft_size])
-    ds.output = zeros[float]([ds.total_segments, fft_size div 2])
+    ds.stft = zeros[Complex[float]]([ds.total_segments, fft_size])
+    ds.wave = zeros[float]([data_len])
     return ds
 
 proc stft0*(data: Tensor[float], ds: STFT_DS_ref) =
-    let fft_half = ds.fft_size div 2
+    # let fft_half = ds.fft_size div 2
     for i in 0..<ds.total_segments:
         let wl = ds.hop_size * i
         # TODO: arraymancer version is slightly slower
-        # ds.buffer_A = (data[wl..<(wl+ds.fft_size)] *. ds.windowing_function).map_inline(complex(x))
+        # ds.buffer_A = (data[wl..<(wl+ds.fft_size)] *. ds.windowing_function)
+        #   .map_inline(complex(x))
         for j in 0..<ds.fft_size:
-            ds.buffer_A[j] = complex(data[wl+ds.fft_size] * ds.windowing_function[j])
+            ds.buffer_A[j] = complex(data[wl+j] * ds.windowing_function[j])
         fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
-        for j in 0..<fft_half:
-            ds.output[i, j] = abs(ds.buffer_A[j])
+        for j in 0..<ds.fft_size:
+            ds.stft[i, j] = ds.buffer_A[j]
+            # ds.stft[i, j] = abs(ds.buffer_A[j])
         # ds.output[i, _] = (abs(ds.buffer_A)[0..<fft_half]).reshape([1, fft_half])
 
-proc stft*(data: Tensor[float], fft_size: int): Tensor[float] =
-    var ds = newStft(data, fft_size)
+proc stft*(data: Tensor[float], fft_size: int): Tensor[Complex[float]] =
+    var ds = newStft(data.shape[0], fft_size)
     stft0(data, ds)
-    return ds.output
+    return ds.stft
 
-proc istft*(data: Tensor[float]): Tensor[float] =
-    assert data.shape[1].isPowerOfTwo
-    let fft_size = data.shape[1] * 2
-    let fft_half = fft_size div 2
-    let hop_size = fft_half
-    let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
-    # let total_segments = (data_len - fft_size) div hop_size
-    let total_segments = data.shape[0]
+proc istft0*(data: Tensor[Complex[float]], ds: STFT_DS_ref) =
+    # let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
+    # let total_segments = data.shape[0]
+    let rsize = complex(1.0/float(ds.fft_size))
+    for i in 0..<ds.total_segments:
+        let wl = ds.hop_size * i
+        ds.buffer_A = data[i, _].reshape(ds.fft_size)
+        # ds.buffer_A.apply(x => (x*rsize).conjugate)
+        ds.buffer_A.apply_inline((x*rsize).conjugate)
+        fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
+        ds.buffer_A.apply_inline(x.conjugate)
+        ds.wave[wl..<(wl+ds.fft_size)] = ds.buffer_A.map_inline(x.re)
 
-    var temp = zeros[float](data_len)
+proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
+    let fft_size = mag_spec.shape[1]
+    let hop_size = fft_size div 2
+    let samples_size = mag_spec.shape[0] * hop_size + (fft_size - hop_size)
+    var ds = newStft(samples_size, fft_size)
+    var guess = randomTensor(samples_size, 1.0)
+    let cone = complex(1.0, 0.0)
+    let mag_comp = mag_spec.map(x => complex(x))
+    for n in countdown(iterations, 0):
+        stft0(guess, ds)
+        let rec_angle = ds.stft.map(x => x.phase)
+        let prop_spec = mag_comp * rec_angle.map(x => exp(cone * x))
+        istft0(prop_spec, ds)
+        guess = ds.wave
+        echo n
 
-    # inverse hamming (can do because it's always > 0.0)
-    let invert_window = hamming[float](fft_size).map(x => 1.0/x)
-    var windowed = zeros[Complex[float]](fft_size)
-
-    let fn = complex(1.0/float(fft_size))
-    var y = fft_empty_array_complex(fft_size)
-    for i in 0..<total_segments:
-        windowed[0..<fft_half] = data[i, _].map_inline(complex(x)).reshape(fft_half)
-
-        # Copy FFT reverse side
-        for j in fft_half..<fft_size:
-            windowed[j] = windowed[fft_size-j]
-
-        # ifft
-        windowed.apply(x => (x*fn).conjugate)
-        fft0(fft_size, 0, false, windowed, y)
-        windowed.apply(x => x.conjugate)
-
-        let wl = hop_size * i
-        temp[wl..<(wl+fft_size)] = temp[wl..<(wl+fft_size)] + (abs(windowed) *. invert_window)
-
-    return temp
+        # echo fmt"Iteration: {n}, RMSE: {sqrt(sum())}"
 
 
 when isMainModule:
@@ -134,11 +137,14 @@ when isMainModule:
 
     let wave = loadWav("data/sample.wav")
     let fft_size = 512
-    let mag_spectrum = wave.toFloat.toTensor()
+    let wave_tensor = wave.toFloat.toTensor()
 
-    var ds = mag_spectrum.newStft(fft_size)
-    timeIt "stft":
-        mag_spectrum.stft0(ds)
+    var ds = newStft(wave_tensor.shape[0], fft_size)
+    # timeIt "stft":
+    #     mag_spectrum.stft0(ds)
+
+    let mag_spec = wave_tensor.stft(fft_size).abs
+    discard griffin_lim(mag_spec, 10)
 
     # let fft_size = 2048
     # let mag_spectrum = wave.toFloat.toTensor().stft(fft_size)
