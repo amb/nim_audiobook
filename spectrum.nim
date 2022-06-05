@@ -68,7 +68,8 @@ proc newStft*(data_len: int, fft_size: int): STFT_DS_ref =
     ds.hop_size = fft_size div 2
     ds.data_size = data_len
     ds.total_segments = (data_len - fft_size) div ds.hop_size
-    ds.windowing_function = hamming[float](fft_size)
+    ds.windowing_function = hann[float](fft_size)
+    # ds.windowing_function = hamming[float](fft_size)
     ds.buffer_A = zeros[Complex[float]]([fft_size])
     ds.buffer_B = zeros[Complex[float]]([fft_size])
     ds.stft = zeros[Complex[float]]([ds.total_segments, fft_size])
@@ -112,41 +113,23 @@ proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
     let fft_size = mag_spec.shape[1]
     let hop_size = fft_size div 2
     let samples_size = mag_spec.shape[0] * hop_size + fft_size
-    var ds = newStft(samples_size, fft_size)
+
     var guess = randomTensor(samples_size, 1.0)
     var prev_guess = guess
 
-    # Create a complex matrix, insert you magnitude spectrogram as a real layer, 
-    # and create imaginary layer of uniform noise 
-    # (Now you have amplitude information but still no phase).
-    var mag_comp: Tensor[Complex[float]] = mag_spec.map(x => complex(x, rand(2.0) - 1.0))
+    var ds = newStft(samples_size, fft_size)
+    # var mag_comp: Tensor[Complex[float]] = mag_spec.map(x => complex(x))
+    let mag_comp = mag_spec.map_inline(x.complex)
+    let cone = complex(0.0, 1.0)
     for n in countup(1, iterations):
-        # Perform ISTFT on it (Now you have time series based on amplitude information only).
-        istft0(mag_comp, ds)
+        stft0(guess, ds)
+        istft0(mag_comp *. ds.stft.map(x => exp(cone * phase(x))), ds)
         prev_guess = guess
         guess = ds.wave
 
-        # The guess seems to quickly vanish to nothingness without normalization
-        # TODO: Pretty sure this is a hack
-        let npar = max(abs(guess.min), abs(guess.max))
-        guess = (guess / npar) * 0.92
-
-        # Calculate STFT of obtained time series 
-        # (Now you extract a little bit of phase information from the time series, 
-        # but it’s still highly imperfect because time series was imperfect).
-        stft0(guess, ds)
-
-        # In that STFT, which is a complex matrix, 
-        # change real layer to your original magnitude spectrogram 
-        # (Now you have complex spectrogram with unchanged amplitude information
-        # from your starting mag spec, but now you have a little bit of useful phase information).
-        for i in 0..<mag_comp.shape[0]:
-            for j in 0..<mag_comp.shape[1]:
-                mag_comp[i, j].im = ds.stft[i, j].im
-
         # Iterate until satisfied, this should converge
         # let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
-        # echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}, Mag: {npar:.4f}"
+        # echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}"
 
     return guess
 
