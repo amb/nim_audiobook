@@ -1,26 +1,26 @@
 import arraymancer, pixie, chroma, sugar, strutils, strformat, sequtils, math, base64
 
-const ok_purple = polarOklab(color(1.0, 0.0, 1.0, 1.0))
-const ok_yellow = polarOklab(color(1.0, 1.0, 0.0, 1.0))
+# const ok_purple = polarOklab(color(1.0, 0.0, 1.0, 1.0))
+# const ok_yellow = polarOklab(color(1.0, 1.0, 0.0, 1.0))
 
-proc magma(x: float): Color =
-    # TODO: colors don't seem to behave the way I think they do
-    # var c = polarOklab(i*255.0, ok_purple.C * (1.0 - x) + ok_yellow.C * x, ok_purple.h * (1.0 - x) + ok_yellow.h * x)
-    # result = color(c)
-    # let i=pow(x, 1.2)
-    result = color(hsv((1.0-x)*255.0, (1.0-x)*128.0+128.0, x*255.0))
-    result.a = 1.0
+# proc magma(x: float): Color =
+#     # TODO: colors don't seem to behave the way I think they do
+#     # var c = polarOklab(i*255.0, ok_purple.C * (1.0 - x) + ok_yellow.C * x, ok_purple.h * (1.0 - x) + ok_yellow.h * x)
+#     # result = color(c)
+#     # let i=pow(x, 1.2)
+#     result = color(hsv((1.0-x)*255.0, (1.0-x)*128.0+128.0, x*255.0))
+#     result.a = 1.0
 
 proc Image*(img: Image): string =
     return fmt"""<img src="data:image/png;base64, {img.encodeImage(PngFormat).encode}" />"""
 
 proc plot1D*(img: Image, arr: openArray[float]): Image =
     var path: seq[string] = @[]
-
     let amax = arr[arr.maxIndex]
     let amin = arr[arr.minIndex]
-
     let mp = float(img.height)/(amax - amin)
+
+    img.fill(rgb(255, 255, 255))
 
     # For long arrays, draw <wmul> overlapping
     let wmul = 8
@@ -35,6 +35,11 @@ proc plot1D*(img: Image, arr: openArray[float]): Image =
 
     img.strokePath(fmt"M {path[0]} L " & path.join(""), rgba(0, 0, 128, 255), strokeWidth = 1)
     return img
+
+# proc plot1DC*(arr: openArray[float]): string =
+#     return """
+#         <canvas id="myCanvas" width="200" height="100" style="border:1px solid #000000;">
+#         </canvas>"""
 
 proc plot2DArray*(arr: Tensor[float]): Image =
     var array_out = newImage(arr.shape[0], arr.shape[1])

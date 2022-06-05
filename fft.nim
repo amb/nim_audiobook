@@ -146,7 +146,6 @@ when isMainModule:
     var y = fft_empty_array(caudio)
     let caudio_len = fft_array_len(caudio)
     timeIt "fft":
-        # Non-AVX is faster when -d:lto
         fft0(caudio_len, 0, false, caudio, y)
 
     # Benchmark pocketFFT

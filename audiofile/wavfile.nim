@@ -1,6 +1,6 @@
 import streams, std/base64, std/strformat
 
-type 
+type
     WavFile* = object
         data*: seq[uint8]
         size*: int
@@ -23,7 +23,7 @@ type
 
     wavChunkObj* = object
         DataChunkID: string
-        DataChunkSize*: uint32 
+        DataChunkSize*: uint32
         Data: string
         # Data: seq[uint8]
 
@@ -40,7 +40,7 @@ proc readDataChunk(f: FileStream): wavChunkObj =
     # chunk.Data = tbuf
     return chunk
 
-proc wavWrite(f: Stream, wav: WavFile) = 
+proc wavWrite(f: Stream, wav: WavFile) =
     let datalen: uint32 = wav.data.len.uint32
 
     var header = wavHeaderObj()
@@ -72,12 +72,13 @@ proc wavSeq(iarr: seq[float], freq: int): WavFile =
     clip.data = newSeq[uint8](clip.size)
     var arr = cast[ptr UncheckedArray[int16]](clip.data[0].addr)
     for i in 0..<iarr.len:
+        # TODO: inaccurate
         arr[i] = int16(iarr[i]*32000.0)
     return clip
 
 
 proc toFloat*(wav: WavFile): seq[float] =
-    var rseq: seq[float] = @[] 
+    var rseq: seq[float] = @[]
     var arr = cast[ptr UncheckedArray[int16]](wav.data[0].unsafeAddr)
     let mpl = 1.0/32000.0
     for i in 0..<wav.size div 2:
@@ -131,6 +132,44 @@ proc toHTML*(wav: WavFile, autoplay: bool): string =
         </audio>
         """
 
+
+# proc audioBufferToHTMLStupidVSCodeVersion*(wav: WavFile): string =
+#     var f = newStringStream()
+#     f.wavWrite(wav)
+#     f.setPosition(0)
+#     var content = f.readAll()
+#     f.close()
+#     return fmt"""
+#     <script>
+#     var playAudio = function() {{
+#         alert("foo!");
+#         // console.log("Play");
+#         // var snd = Audio("data:audio/wav;base64,{encode(content)}");
+#         // snd.play();
+#     }}
+#     </script>
+#     <button onclick="playAudio()">Play</button>
+#     """
+
+    # <script>
+    # if (!window.audioContext) {{
+    #     window.audioContext = new AudioContext();
+    #     window.playAudio = function(audioChannels, sr) {
+    #         const buffer = audioContext.createBuffer(audioChannels.length, audioChannels[0].length, sr);
+    #         for (let [channel, data] of audioChannels.entries()) {{
+    #             buffer.copyToChannel(Float32Array.from(data), channel);
+    #         }}
+    
+    #         const source = audioContext.createBufferSource();
+    #         source.buffer = buffer;
+    #         source.connect(audioContext.destination);
+    #         source.start();
+    #     }}
+    # }}
+    # </script>
+    # <button onclick="playAudio(%s, %s)">Play</button>
+    # """
+
 proc Audio*(iarr: seq[float], freq: int, autoplay: bool): string =
     # Similar to Python Jupyter Audio
     return iarr.wavSeq(freq).toHTML(autoplay)
@@ -140,10 +179,10 @@ if isMainModule:
     var sample_name = "sample.wav"
     var iwav = loadWav(sample_name)
 
-    echo sample_name, ": ", 
-        iwav.size, " bytes, ", 
-        iwav.freq, " Hz, ", 
-        iwav.channels, " channels, ", 
+    echo sample_name, ": ",
+        iwav.size, " bytes, ",
+        iwav.freq, " Hz, ",
+        iwav.channels, " channels, ",
         iwav.bits, " bits, ",
         iwav.data.len, " length"
 
@@ -152,9 +191,9 @@ if isMainModule:
 
     var iwav2 = loadWav("out.wav")
 
-    echo iwav2.size, " bytes, ", 
-        iwav2.freq, " Hz, ", 
-        iwav2.channels, " channels, ", 
+    echo iwav2.size, " bytes, ",
+        iwav2.freq, " Hz, ",
+        iwav2.channels, " channels, ",
         iwav2.bits, " bits"
 
     #echo toHTML(iwav)

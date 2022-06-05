@@ -3,3 +3,4 @@
 fft
 *.exe
 profile_results.txt
+*.html
