@@ -91,10 +91,6 @@ proc stft*(data: Tensor[float], fft_size: int): Tensor[Complex[float]] =
     return ds.stft
 
 proc istft0*(data: Tensor[Complex[float]], ds: STFT_DS_ref) =
-    # let data_len = data.shape[0] * hop_size + fft_size - hop_size + 1
-    # let total_segments = data.shape[0]
-
-    # let rsize = complex(1.0/float(ds.data_size))
     let rsize = complex(1.0/float(ds.fft_size))
     for i in 0..<ds.wave.shape[0]:
         ds.wave[i] = 0.0
@@ -105,7 +101,6 @@ proc istft0*(data: Tensor[Complex[float]], ds: STFT_DS_ref) =
         fft0(ds.fft_size, 0, false, ds.buffer_A, ds.buffer_B)
         ds.wave[wl..<(wl+ds.fft_size)] = ds.wave[wl..<(wl+ds.fft_size)] + 
             (ds.buffer_A.map_inline(x.conjugate.re))
-            # (ds.buffer_A.map_inline(x.re) *. ds.windowing_function)
 
 proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
     ## Discover the phase information of a magnitude only spectrogram
@@ -113,25 +108,20 @@ proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
     let fft_size = mag_spec.shape[1]
     let hop_size = fft_size div 2
     let samples_size = mag_spec.shape[0] * hop_size + fft_size
-
-    var guess = randomTensor(samples_size, 1.0)
-    var prev_guess = guess
-
     var ds = newStft(samples_size, fft_size)
-    # var mag_comp: Tensor[Complex[float]] = mag_spec.map(x => complex(x))
-    let mag_comp = mag_spec.map_inline(x.complex)
+
     let cone = complex(0.0, 1.0)
+    let mag_comp = mag_spec.map_inline(x.complex)
+    ds.wave = randomTensor(samples_size, 1.0)
     for n in countup(1, iterations):
-        stft0(guess, ds)
+        stft0(ds.wave, ds)
         istft0(mag_comp *. ds.stft.map(x => exp(cone * phase(x))), ds)
-        prev_guess = guess
-        guess = ds.wave
 
         # Iterate until satisfied, this should converge
         # let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
         # echo fmt"Iteration: {n}/{iterations}, RMSE: {diff:.4f}"
 
-    return guess
+    return ds.wave
 
 
 when isMainModule:
