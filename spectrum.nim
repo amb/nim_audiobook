@@ -130,12 +130,11 @@ when isMainModule:
     let wave = loadWav("data/sample.wav")
     let fft_size = 512
     let wave_tensor = wave.toFloat.toTensor()
-
-    var ds = newStft(wave_tensor.shape[0], fft_size)
-    # timeIt "stft":
-    #     mag_spectrum.stft0(ds)
-
     let mag_spec = wave_tensor.stft(fft_size).abs
-    echo wave_tensor.shape
-    timeIt "griffin_lim", 1:
-        discard griffin_lim(mag_spec, 7)
+
+    # var ds = newStft(wave_tensor.shape[0], fft_size)
+    # timeIt "stft":
+    #     mag_spec.stft0(ds)
+
+    timeIt "griffin_lim":
+        discard griffin_lim(mag_spec, 32)
