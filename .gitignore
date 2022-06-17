@@ -5,3 +5,6 @@ spectrum
 *.exe
 profile_results.txt
 *.html
+.DS_Store*
+run.txt
+test.c
