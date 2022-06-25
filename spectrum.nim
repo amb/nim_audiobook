@@ -73,6 +73,7 @@ proc newStft*(data_len: int, fft_size: int): STFT_DS_ref =
     ds.buffer_A = zeros[Complex[float]]([fft_size])
     ds.buffer_B = zeros[Complex[float]]([fft_size])
     ds.stft = zeros[Complex[float]]([ds.total_segments, fft_size])
+    # TODO: shouldn't this be complex???
     ds.wave = zeros[float]([data_len])
     return ds
 
