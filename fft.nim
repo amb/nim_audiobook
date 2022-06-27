@@ -165,5 +165,6 @@ when isMainModule:
     
     # import nimprof
     # nim c -r -d:release --profiler:on --stackTrace:on fft.nim  
+    # nim c -d:danger -d:fftspeedy --debugger:native spectrum.nim
 
     # fft ............................... 17.335 ms     17.770 ms    ±0.333   x280

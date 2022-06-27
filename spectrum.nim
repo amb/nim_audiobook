@@ -116,7 +116,11 @@ proc griffin_lim*(mag_spec: Tensor[float], iterations: int): Tensor[float] =
     ds.wave = randomTensor(samples_size, 1.0)
     for n in countup(1, iterations):
         stft0(ds.wave, ds)
-        istft0(mag_comp *. ds.stft.map(x => exp(cone * phase(x))), ds)
+        for i in 0..<ds.stft.shape[0]:
+            for j in 0..<ds.stft.shape[1]:
+                ds.stft[i, j] = exp(cone * phase(ds.stft[i, j]))
+        istft0(mag_comp *. ds.stft, ds)
+        # istft0(mag_comp *. ds.stft.map(x => exp(cone * phase(x))), ds)
 
         # Iterate until satisfied, this should converge
         # let diff = sqrt(sum((guess - prev_guess)^.2.0)/float(samples_size))
