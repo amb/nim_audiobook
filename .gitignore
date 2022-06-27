@@ -8,3 +8,5 @@ profile_results.txt
 .DS_Store*
 run.txt
 test.c
+callgrind.*
+*.txt
