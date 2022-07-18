@@ -1,4 +1,4 @@
-import math, complex, arraymancer
+import math, complex
 
 when isMainModule:
     import benchy, strformat, strutils, sequtils
@@ -22,7 +22,7 @@ when defined(fftSpeedy):
         arr
 
 type
-    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+    FFTArray = seq[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -69,20 +69,13 @@ proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
         fft0(n div 2, sp+1, not eo, y, x)
 
 proc fft_empty_array*(v: FFTArray): FFTArray =
-    when v is seq:
-        result = newSeq[Complex[float]](v.len)
-    elif v is Tensor:
-        result = zeros[Complex[float]](v.shape[0])
+    result = newSeq[Complex[float]](v.len)
 
-proc fft_empty_array_complex*(v: int): FFTArray =
-    result = zeros[Complex[float]](v)
+# proc fft_empty_array_complex*(v: int): FFTArray =
+    # result = zeros[Complex[float]](v)
 
 proc fft_array_len*(v: FFTArray): int =
-    when v is seq:
-        var l: int = v.len
-    elif v is Tensor:
-        var l: int = v.shape[0]
-    return l
+    return v.len
 
 proc fft*(x: var FFTArray) =
     # n : sequence length
