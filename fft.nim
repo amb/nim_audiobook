@@ -59,11 +59,17 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
             else:
                 let fp = float(p)*theta0
                 let wp = complex(cos(fp), -sin(fp))
+                
+            let sp0 = s*(p+0)
+            let spm = s*(p+m)
+            let s2p0 = s*(2*p+0)
+            let s2p1 = s*(2*p+1)
+
             for q in 0..<s:
-                let a = x[q + s*(p+0)]
-                let b = x[q + s*(p+m)]
-                y[q + s*(2*p+0)] =  a + b
-                y[q + s*(2*p+1)] = (a - b) * wp
+                let a = x[q + sp0]
+                let b = x[q + spm]
+                y[q + s2p0] =  a + b
+                y[q + s2p1] = (a - b) * wp
 
         fft0(n div 2, s * 2, not eo, y, x)
 
