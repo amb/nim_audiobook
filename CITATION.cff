@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "YOUR_NAME_HERE"
+  given-names: "YOUR_NAME_HERE"
+  orcid: "https://orcid.org/0000-0000-0000-0000"
+title: "nim_audiobook"
+version: 1.0.0
+doi: 10.5281/zenodo.1234
+date-released: 2023-07-09
+url: "https://github.com/amb/nim_audiobook"
+
+citation-1:
+  authors:
+    - name: xflywind
+  title: xflywind/scim
+  type: repository
+  URL: https://github.com/xflywind/scim
+citation-2:
+  authors:
+    - name: treeform
+  title: treeform/slappy
+  type: repository
+  URL: https://github.com/treeform/slappy
+citation-3:
+  authors:
+    - name: johnnovak
+  title: johnnovak/easywave
+  type: repository
+  URL: https://github.com/johnnovak/easywave
+citation-4:
+  title: bkvogel/griffin_lim/audio_utilities.py
+  type: file
+  URL: https://github.com/bkvogel/griffin_lim/blob/master/audio_utilities.py
+citation-5:
+  authors:
+    - name: Ooura, T.
+  title: Optimized FFT Library: OTOFFT
+  type: webpage
+  URL: http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
+citation-6:
+  authors:
+    - name: Kevin's Projects
+  title: Short-Time Fourier Transform using Python and NumPy
+  type: webpage
+  URL: https://kevinsprojects.wordpress.com/2014/12/13/short-time-fourier-transform-using-python-and-numpy/
+citation-7:
+  authors:
+    - name: Valerio Velardo
+  title: Short-Time Fourier Transform using Python and NumPy
+  type: video
+  URL: https://www.youtube.com/watch?v=9GHCiiDLHQ4
+citation-8:
+  authors:
+    - name: Frikha, M.
+  title: A Guide to Mel Frequency Cepstral Coefficients (MFCCs)
+  type: webpage
+  URL: http://practicalcryptography.com/miscellaneous/machine-learning/guide-mel-frequency-cepstral-coefficients-mfccs/
+citation-9:
+  authors:
+    - name: Fayek, H.
+  title: Speech Processing for Machine Learning: Filter banks, Mel-Frequency Cepstral Coefficients (MFCCs) and What's In-Between
+  type: webpage
+  URL: https://haythamfayek.com/2016/04/21/speech-processing-for-machine-learning.html
