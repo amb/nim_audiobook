@@ -9,5 +9,5 @@ profile_results.txt
 run.txt
 test.c
 .vscode/
-otfft-11.5ev/
+otfft-11.5*/
 *_temp.h
