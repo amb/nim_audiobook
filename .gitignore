@@ -10,3 +10,4 @@ run.txt
 test.c
 .vscode/
 otfft-11.5ev/
+*_temp.h
