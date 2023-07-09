@@ -11,3 +11,6 @@ test.c
 .vscode/
 otfft-11.5*/
 *_temp.h
+*.o
+bench_otfft
+bench_pocket
