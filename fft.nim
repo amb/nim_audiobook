@@ -5,8 +5,6 @@ when isMainModule:
     import audiofile/[vorbis, wavfile]
     # import plottings, nimview
 
-# import pocketfft/pocketfft
-
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
@@ -24,7 +22,7 @@ when defined(fftSpeedy):
 type
     FFTArray = seq[Complex[float]]
 
-proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
+proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -40,9 +38,10 @@ proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
     ## n and s must always be powers of 2
 
     assert n.isPowerOfTwo
-    let m: int = n div 2
-    let s = 1 shl sp
     assert s.isPowerOfTwo
+    assert s > 0
+    let m: int = n div 2
+    # let s = 1 shl sp
 
     when not defined(fftSpeedy):
         let theta0: float = 2.0*PI/float(n)
@@ -52,7 +51,7 @@ proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
             for q in 0..<s:
                 y[q] = x[q]
     else:
-        for p in 0..<m:
+        for p in 0..<n div 2:
             when defined(fftSpeedy):
                 # let fpl = thetaLut[(p shl 11) div n]
                 let fpl = thetaLut[(p*thetaLutSize) div n]
@@ -66,7 +65,7 @@ proc fft0*[T: FFTArray](n: int, sp: int, eo: bool, x: var T, y: var T) =
                 y[q + s*(2*p+0)] =  a + b
                 y[q + s*(2*p+1)] = (a - b) * wp
 
-        fft0(n div 2, sp+1, not eo, y, x)
+        fft0(n div 2, s * 2, not eo, y, x)
 
 proc fft_empty_array*(v: FFTArray): FFTArray =
     result = newSeq[Complex[float]](v.len)
@@ -87,7 +86,7 @@ proc fft*(x: var FFTArray) =
     assert alen.isPowerOfTwo()
 
     var y = fft_empty_array(x)
-    fft0(alen, 0, false, x, y)
+    fft0(alen, 1, false, x, y)
 
 proc ifft*(x: var FFTArray) =
     # n : sequence length
@@ -99,7 +98,7 @@ proc ifft*(x: var FFTArray) =
         x[p] = (x[p]*fn).conjugate
 
     var y = fft_empty_array(x)
-    fft0(n, 0, false, x, y)
+    fft0(n, 1, false, x, y)
 
     for p in 0..<n:
         x[p] = x[p].conjugate
@@ -134,21 +133,12 @@ when isMainModule:
     var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
     var caudio = audio.mapIt(complex(it))
     echo "Sample len: ", fft_array_len(caudio)
-    # var vsf2 = vsf
 
     var y = fft_empty_array(caudio)
     let caudio_len = fft_array_len(caudio)
     timeIt "fft":
         # Non-AVX is faster when -d:lto
-        fft0(caudio_len, 0, false, caudio, y)
-
-    # Benchmark pocketFFT
-    # var dOut = newSeq[Complex[float64]](vsf2.len)
-    # let dInDesc = DataDesc[Complex[float64]].init(vsf2[0].addr, [vsf2.len])
-    # var dOutDesc = DataDesc[Complex[float64]].init(dOut[0].addr, [dOut.len])
-    # var fftd = FFTDesc[float64].init(axes=[0], forward=true)
-    # timeIt "pocketfft":
-    #     fftd.apply(dOutDesc, dInDesc)
+        fft0(caudio_len, 1, false, caudio, y)
 
     # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft

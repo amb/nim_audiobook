@@ -303,19 +303,13 @@ when isMainModule:
     let dIn = @[1.0, 2.0, 1.0, -1.0, 1.5]
     var dOut = newSeq[Complex[float64]](dIn.len)
 
-    let dInDesc = DataDesc[float64].init(
-      dIn[0].unsafeAddr, [dIn.len]
-    )
-    var dOutDesc = DataDesc[Complex[float64]].init(
-      dOut[0].addr, [dOut.len]
-    )
+    let dInDesc = DataDesc[float64].init(dIn[0].unsafeAddr, [dIn.len])
+    var dOutDesc = DataDesc[Complex[float64]].init(dOut[0].addr, [dOut.len])
 
-    let fft = FFTDesc[float64].init(
-      axes = [0],
-      forward = true
-    )
+    let fft = FFTDesc[float64].init(axes = [0], forward = true)
 
     fft.apply(dOutDesc, dInDesc)
+    
     echo dIn
     echo dOut
 
@@ -323,16 +317,10 @@ when isMainModule:
     let dIn = @[4.0, 3.0, 5.0, 10.0]
     var dOut = newSeq[float64](dIn.len)
 
-    let dInDesc = DataDesc[float64].init(
-      dIn[0].unsafeAddr, [dIn.len]
-    )
-    var dOutDesc = DataDesc[float64].init(
-      dOut[0].addr, [dOut.len]
-    )
+    let dInDesc = DataDesc[float64].init(dIn[0].unsafeAddr, [dIn.len])
+    var dOutDesc = DataDesc[float64].init(dOut[0].addr, [dOut.len])
 
-    let dct = DCTDesc[float64].init(
-      axes = [0]
-    )
+    let dct = DCTDesc[float64].init(axes = [0])
 
     dct.apply(dOutDesc, dInDesc)
     echo dIn
