@@ -2,7 +2,7 @@ import math, complex
 import benchy, strformat, strutils, sequtils
 import audiofile/[vorbis, wavfile]
 
-import otfft-simple/otfft_c
+import otfft-simple/otfft
 
 proc padPowerOfTwo*(arr: seq[float]): seq[float] =
     assert arr.len > 0

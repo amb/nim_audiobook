@@ -115,10 +115,10 @@ when isMainModule:
     let wave = loadWav("data/sample.wav")
     let fft_size = 512
     let wave_tensor = wave.toFloat.padPowerOfTwo.toTensor
-    var stft_ds = newStft(wave_tensor.shape[0], fft_size)
-    stft_ds.forward(wave_tensor)
-    let mag_spec = stft_ds.spectrum.abs
-
+    var stft = newStft(wave_tensor.shape[0], fft_size)
+    stft.forward(wave_tensor)
+    let mag_spec = stft.spectrum.abs
+    stft.inverse(stft.spectrum)
     # let inverse = mag_spec.inverse0(fft_size)
 
     # var ds = newStft(wave_tensor.shape[0], fft_size)
