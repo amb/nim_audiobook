@@ -9,9 +9,7 @@
 # gcc -O3 -c hello.c && gcc hello.o otfft/otfft.o -lgomp -lm -lstdc++ -o hello && ./hello
 
 {.passL:"otfft-simple/otfft.o".}
-{.passL:"-lgomp".}
-{.passL:"-lm".}
-{.passL:"-lstdc++".}
+{.passL:"-lgomp -lm -lstdc++".}
 
 import std/complex
 
