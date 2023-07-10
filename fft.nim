@@ -1,8 +1,9 @@
-import math, complex
+import math, complex, arraymancer
 
 when isMainModule:
     import benchy, strformat, strutils, sequtils
     import audiofile/[vorbis, wavfile]
+    import utils
     # import plottings, nimview
 
 # OTFFT library
@@ -20,7 +21,7 @@ when defined(fftSpeedy):
         arr
 
 type
-    FFTArray = seq[Complex[float]]
+    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -38,8 +39,7 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## n and s must always be powers of 2
 
     assert n.isPowerOfTwo
-    assert s.isPowerOfTwo
-    assert s > 0
+    assert s == 0 or s.isPowerOfTwo
     let m: int = n div 2
     # let s = 1 shl sp
 
@@ -108,13 +108,6 @@ proc ifft*(x: var FFTArray) =
 
     for p in 0..<n:
         x[p] = x[p].conjugate
-
-proc padPowerOfTwo*(arr: seq[float]): seq[float] =
-    assert arr.len > 0
-    result = arr
-    for i in arr.len..<arr.len.nextPowerOfTwo:
-        result.add(arr[0])
-    assert result.len.isPowerOfTwo
 
 when isMainModule:
     echo "Running fft.nim"
