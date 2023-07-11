@@ -1,5 +1,5 @@
 import std/[math, complex, times, strformat]
-import otfft_c
+import otfft
 
 const
     n_max = 22
