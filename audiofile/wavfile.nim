@@ -80,7 +80,7 @@ proc wavSeq(iarr: seq[float], freq: int): WavFile =
 proc toFloat*(wav: WavFile): seq[float] =
     var rseq: seq[float] = @[]
     var arr = cast[ptr UncheckedArray[int16]](wav.data[0].unsafeAddr)
-    let mpl = 1.0/32000.0
+    let mpl = 1.0/32768.0
     for i in 0..<wav.size div 2:
         rseq.add(float(arr[i])*mpl)
     return rseq

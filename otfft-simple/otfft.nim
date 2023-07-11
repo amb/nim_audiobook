@@ -15,7 +15,8 @@ elif defined(gcc):
     {.passL:"otfft/otfft.o".}
     {.passL:"-lgomp -lm -lstdc++".}
 elif defined(vcc):
-    {.passL:"otfft-simple/otfft/otfft.obj".}
+    {.compile("otfft/otfft_c.cpp").}
+    # {.passL:"otfft-simple/otfft/otfft.obj".}
     # {.passL:"/O2 /MT /arch:AVX2 /openmp /EHsc /Oi /GL /nologo /fp:fast".}
 else:
     raise ValueError("Unknown compiler")

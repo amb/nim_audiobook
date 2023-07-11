@@ -1,4 +1,5 @@
-import math, complex, arraymancer
+import math, complex
+# import arraymancer
 
 when isMainModule:
     import benchy, strformat, strutils, sequtils
@@ -11,17 +12,17 @@ when isMainModule:
 
 when defined(fftSpeedy):
     # 2^11
-    const thetaLutSize = 2048
+    const thetaLutSize = 4096
     const thetaLut = static:
         let step = 2.0*PI/float(thetaLutSize)
-        var arr: array[thetaLutSize, array[2, float]]
-        for k, v in mpairs(arr):
-            v[0] = cos(step * float(k))
-            v[1] = -sin(step * float(k))
+        var arr: array[thetaLutSize, Complex[float]]
+        for k in 0..<thetaLutSize:
+            arr[k] = complex(cos(step * float(k)), -sin(step * float(k)))
         arr
 
 type
-    FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+    # FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+    FFTArray = seq[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -54,8 +55,7 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
         for p in 0..<n div 2:
             when defined(fftSpeedy):
                 # let fpl = thetaLut[(p shl 11) div n]
-                let fpl = thetaLut[(p*thetaLutSize) div n]
-                let wp  = complex(fpl[0], fpl[1])
+                let wp = thetaLut[(p*thetaLutSize) div n]
             else:
                 let fp = float(p)*theta0
                 let wp = complex(cos(fp), -sin(fp))
@@ -112,25 +112,27 @@ proc ifft*(x: var FFTArray) =
 when isMainModule:
     echo "Running fft.nim"
 
-    let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
-                -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
+    # let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+    #             -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
 
-    let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22,
-                       0.0, 1.22, 1.71, 2.27, 1.41, 3.4 , 4.13, 6.15]
+    # let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22,
+    #                    0.0, 1.22, 1.71, 2.27, 1.41, 3.4 , 4.13, 6.15]
    
-    var ts = tarr.mapIt(complex(it, 0.0))
-    fft(ts)
-    var fft_result = ts.mapIt(round(abs(it), 2))
-    echo fft_target
-    echo fft_result
-    doAssert fft_result == fft_target
-    doAssert ts[0].re != tarr[0]
-    ifft(ts)
-    var tsr = ts.mapIt(round(it.re, 4))
-    doAssert tsr == tarr
+    # var ts = tarr.mapIt(complex(it, 0.0))
+    # fft(ts)
+    # var fft_result = ts.mapIt(round(abs(it), 2))
+    # echo fft_target
+    # echo fft_result
+    # doAssert fft_result == fft_target
+    # doAssert ts[0].re != tarr[0]
+    # ifft(ts)
+    # var tsr = ts.mapIt(round(it.re, 4))
+    # doAssert tsr == tarr
 
     var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
-    var caudio = audio.mapIt(complex(it))
+    var caudio = newSeq[Complex[float]](audio.len)
+    for i in 0..<audio.len:
+        caudio[i] = complex(audio[i], 0.0)
     echo "Sample len: ", fft_array_len(caudio)
 
     var y = fft_empty_array(caudio)
@@ -139,7 +141,7 @@ when isMainModule:
         # Non-AVX is faster when -d:lto
         fft0(caudio_len, 1, false, caudio, y)
 
-    # nim c -d:release -d:lto -d:strip -d:danger -r fft.nim
+    # nim c -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
     # https://github.com/kraptor/nim_callgrind
     

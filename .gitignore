@@ -14,3 +14,5 @@ otfft-11.5*/
 *.o
 bench_otfft
 bench_pocket
+*.obj
+*.lib
