@@ -8,33 +8,35 @@
 
 # gcc -O3 -c hello.c && gcc hello.o otfft/otfft.o -lgomp -lm -lstdc++ -o hello && ./hello
 
-# when defined(gcc):
-#    {.passL:"otfft-simple/otfft.o".}
-#    {.passL:"-lgomp -lm -lstdc++".}
-# elif defined(vcc):
-#    {.passL:"otfft-simple/otfft.obj".}
-#    {.passL:"/O2 /MT /arch:AVX2 /openmp /EHsc /Oi /GL /nologo /fp:fast".}
-# else:
-#    raise ValueError("Unknown compiler")
+when defined(gcc) and defined(no_prebuild):
+    {.compile("otfft/otfft.cpp", "-lgomp -lm -lstdc++").}
+    {.passL: "-lgomp -lm -lstdc++".}
+elif defined(gcc):
+    {.passL:"otfft/otfft.o".}
+    {.passL:"-lgomp -lm -lstdc++".}
+elif defined(vcc):
+    {.passL:"otfft-simple/otfft/otfft.obj".}
+    # {.passL:"/O2 /MT /arch:AVX2 /openmp /EHsc /Oi /GL /nologo /fp:fast".}
+else:
+    raise ValueError("Unknown compiler")
 
-{.compile("src/otfft.cpp", "-I. -lgomp -lm -lstdc++").}
-{.passL: "-lgomp -lm -lstdc++".}
+
 
 import std/complex
 
-proc simd_malloc*(n: csize_t): pointer {.importc, header: "src/otfft_c.h", cdecl.}
-proc simd_free*(p: pointer) {.importc, header: "src/otfft_c.h", cdecl.}
+proc simd_malloc*(n: csize_t): pointer {.importc, cdecl.}
+proc simd_free*(p: pointer) {.importc, cdecl.}
 
-proc otfft_fft_new*(N: cint): pointer {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_delete*(p: pointer) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_fwd*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_fwd0*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_fwdu*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_fwdn*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_inv*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_inv0*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_invu*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
-proc otfft_fft_invn*(p: pointer; x: ptr Complex64) {.importc, header: "src/otfft_c.h", cdecl.}
+proc otfft_fft_new*(N: cint): pointer {.importc, cdecl.}
+proc otfft_fft_delete*(p: pointer) {.importc, cdecl.}
+proc otfft_fft_fwd*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_fwd0*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_fwdu*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_fwdn*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_inv*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_inv0*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_invu*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
+proc otfft_fft_invn*(p: pointer; x: ptr Complex64) {.importc, cdecl.}
 
 # proc otfft_fft0_new*(N: cint): pointer
 # proc otfft_fft0_delete*(p: pointer)
