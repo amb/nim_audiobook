@@ -13,8 +13,15 @@ when defined(gcc):
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
+proc log2(n: int): int =
+    ## Returns the log2 of an integer
+    var tn = n
+    while tn > 1:
+        tn = tn shr 1
+        inc result
+
 when defined(fftSpeedy):
-    # 2^11
+    # 2^12
     const thetaLutSize = 4096
     const thetaLut = static:
         let step = 2.0*PI/float(thetaLutSize)
@@ -23,12 +30,7 @@ when defined(fftSpeedy):
             arr[k] = complex(cos(step * float(k)), -sin(step * float(k)))
         arr
 
-type
-    # FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
-    # FFTArray = openArray[Complex[float]]
-    FFTArray = seq[Complex[float]]
-
-proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -83,7 +85,7 @@ proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
 
 
-proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
+proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -96,10 +98,7 @@ proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
     ## Returns:
     ## - Output sequence, either `x` or `y`
 
-    ## n and s must always be powers of 2
-
-    assert n.isPowerOfTwo
-    # assert s == 0 or s.isPowerOfTwo
+    doAssert n.isPowerOfTwo
     
     var theta0: float = 2.0*PI/float(n)
     var nd = n
@@ -117,32 +116,30 @@ proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
                 let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
             else:
                 let fp = fc*theta0
+                fc += 1.0
                 let cval =  cos(fp)
                 let sval = -sin(fp)
                 let wp = mm256_setr_pd(cval, sval, cval, sval)
 
-            let sp0 = sd*(p+0)
-            let spm = sd*(p+nd)
-            let s2p0 = sd*(2*p+0)
-            let s2p1 = sd*(2*p+1)
+            let sp0 = sd*p
+            let spm = sp0 + sd*nd
+            let s2p0 = sp0 * 2
+            let s2p1 = s2p0 + sd
 
             for q in countup(0, sd-1, 2):
-                let a = mm256_load_pd(x[q+sp0].re.addr)
-                let b = mm256_load_pd(x[q+spm].re.addr)
-                mm256_store_pd(y[q+s2p0].re.addr, mm256_add_pd(a, b))
-                mm256_store_pd(y[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
-
-            fc += 1.0
+                let a = mm256_load_pd(tx[q+sp0].re.addr)
+                let b = mm256_load_pd(tx[q+spm].re.addr)
+                mm256_store_pd(ty[q+s2p0].re.addr, mm256_add_pd(a, b))
+                mm256_store_pd(ty[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
 
         sd = sd * 2
         eod = not eod
 
-        if nd <= 1:
-            break
-
     while nd > 1:
         # butterfly
         inner_piece(x, y)
+        if nd <= 1:
+            break
         inner_piece(y, x)
     if nd == 1:
         if eod:
@@ -150,16 +147,7 @@ proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
                 y[q] = x[q]
 
 
-proc fft_empty_array*(v: FFTArray): FFTArray =
-    result = newSeq[Complex[float]](v.len)
-
-# proc fft_empty_array_complex*(v: int): FFTArray =
-    # result = zeros[Complex[float]](v)
-
-proc fft_array_len*(v: FFTArray): int =
-    return v.len
-
-# proc fft*(x: var FFTArray) =
+# proc fft*(x: var seq[Complex[float]]) =
 #     # n : sequence length
 #     # x : input/output sequence
 
@@ -171,7 +159,7 @@ proc fft_array_len*(v: FFTArray): int =
 #     var y = fft_empty_array(x)
 #     fft0(alen, 1, false, x, y)
 
-# proc ifft*(x: var FFTArray) =
+# proc ifft*(x: var seq[Complex[float]]) =
 #     # n : sequence length
 #     # x : input/output sequence
 #     var n: int = fft_array_len(x)
@@ -206,14 +194,21 @@ when isMainModule:
     # var tsr = ts.mapIt(round(it.re, 4))
     # doAssert tsr == tarr
 
+    doAssert log2(2) == 1
+    doAssert log2(4) == 2
+    doAssert log2(8) == 3
+    doAssert log2(16) == 4
+    doAssert log2(32) == 5
+    doAssert log2(64) == 6
+
     var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
     var caudio = newSeq[Complex[float]](audio.len)
+    let caudio_len = caudio.len
     for i in 0..<audio.len:
         caudio[i] = complex(audio[i], 0.0)
-    echo "Sample len: ", fft_array_len(caudio)
+    echo fmt"Sample len: {caudio_len} (2^{log2(caudio_len)})"
 
     var y = newSeq[Complex[float]](caudio.len)
-    let caudio_len = fft_array_len(caudio)
     timeIt "fft":
         fft0b(caudio_len, caudio, y)
         # fft0b(caudio_len, 1, false, caudio, y)
