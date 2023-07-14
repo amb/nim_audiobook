@@ -16,3 +16,5 @@ bench_otfft
 bench_pocket
 *.obj
 *.lib
+*.ilk
+*.pdb
