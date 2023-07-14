@@ -7,6 +7,9 @@ when isMainModule:
     import utils
     # import plottings, nimview
 
+when defined(gcc):
+    {.passc: "-mavx".}
+
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
@@ -22,6 +25,7 @@ when defined(fftSpeedy):
 
 type
     # FFTArray = seq[Complex[float]] | Tensor[Complex[float]]
+    # FFTArray = openArray[Complex[float]]
     FFTArray = seq[Complex[float]]
 
 proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
@@ -126,14 +130,6 @@ proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
                 let a = mm256_load_pd(x[q+sp0].re.addr)
                 let b = mm256_load_pd(x[q+spm].re.addr)
                 mm256_store_pd(y[q+s2p0].re.addr, mm256_add_pd(a, b))
-
-                # let aa = mm256_unpacklo_pd(wp, wp)
-                # let bb = mm256_unpackhi_pd(wp, wp)
-                # let xy = mm256_sub_pd(a, b)
-                # let yx = mm256_shuffle_pd(xy, xy, 5)
-                # let xya = mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
-                # mm256_store_pd(y[q+s2p1].re.addr, xya)
-           
                 mm256_store_pd(y[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
 
             fc += 1.0
@@ -237,4 +233,6 @@ when isMainModule:
 
     # superl & sleepy
     # nim --cc:vcc c -r -d:danger --stackTrace:on --debugger:native fft.nim
+
+    # gcc needs --passc:"-mavx" for avx
 
