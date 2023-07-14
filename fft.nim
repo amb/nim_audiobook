@@ -1,4 +1,4 @@
-import math, complex
+import math, complex, nimsimd/avx
 # import arraymancer
 
 when isMainModule:
@@ -12,7 +12,7 @@ when isMainModule:
 
 when defined(fftSpeedy):
     # 2^11
-    const thetaLutSize: int = 4096
+    const thetaLutSize = 4096
     const thetaLut = static:
         let step = 2.0*PI/float(thetaLutSize)
         var arr: array[thetaLutSize, Complex[float]]
@@ -70,6 +70,15 @@ proc fft0*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
         fft0(m, s * 2, not eo, y, x)
 
+
+proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
+    ## AVX float64 complex number multiplication
+    let aa = mm256_unpacklo_pd(ab, ab)
+    let bb = mm256_unpackhi_pd(ab, ab)
+    let yx = mm256_shuffle_pd(xy, xy, 5)
+    return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
+
+
 proc fft0b*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
@@ -87,61 +96,50 @@ proc fft0b*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
 
     assert n.isPowerOfTwo
     assert s == 0 or s.isPowerOfTwo
-
+    
+    var theta0: float = 2.0*PI/float(n)
     var nd = n
     var sd = s
     var eod = eo
-
-    # when not defined(fftSpeedy):
-    let theta0: float = 2.0*PI/float(n)
-
     var fc = 0.0
-    while nd > 1:
+
+    template inner_piece(tx, ty: untyped): untyped =
         fc = 0.0
-        for p in 0..<nd div 2:
-            let fp = fc*theta0
-            let wp = complex(cos(fp), -sin(fp))
+        theta0 = 2.0*PI/float(nd)
+        nd = nd div 2
+        for p in 0..<nd:
+            when defined(fftSpeedy):
+                let wpl = thetaLut[(p*thetaLutSize) div nd]
+                let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
+            else:
+                let fp = fc*theta0
+                let cval =  cos(fp)
+                let sval = -sin(fp)
+                let wp = mm256_setr_pd(cval, sval, cval, sval)
 
             let sp0 = sd*(p+0)
-            let spm = sd*(p+nd div 2)
+            let spm = sd*(p+nd)
             let s2p0 = sd*(2*p+0)
             let s2p1 = sd*(2*p+1)
 
-            for q in 0..<sd:
-                let a = x[q + sp0]
-                let b = x[q + spm]
-                y[q + s2p0] = a + b
-                y[q + s2p1] = (a - b) * wp
+            for q in countup(0, sd-1, 2):
+                let a = mm256_load_pd(x[q+sp0].re.addr)
+                let b = mm256_load_pd(x[q+spm].re.addr)
+                mm256_store_pd(y[q+s2p0].re.addr,           mm256_add_pd(a, b))
+                mm256_store_pd(y[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
+
             fc += 1.0
 
-        nd = nd div 2
         sd = sd * 2
         eod = not eod
 
         if nd <= 1:
             break
 
-        fc = 0.0
-        for p in 0..<nd div 2:
-            let fp = fc*theta0
-            let wp = complex(cos(fp), -sin(fp))
-
-            let sp0 = sd*(p+0)
-            let spm = sd*(p+nd div 2)
-            let s2p0 = sd*(2*p+0)
-            let s2p1 = sd*(2*p+1)
-
-            for q in 0..<sd:
-                let a = y[q + sp0]
-                let b = y[q + spm]
-                x[q + s2p0] = a + b
-                x[q + s2p1] = (a - b) * wp
-            fc += 1.0
-
-        nd = nd div 2
-        sd = sd * 2
-        eod = not eod
-
+    while nd > 1:
+        # butterfly
+        inner_piece(x, y)
+        inner_piece(y, x)
     if nd == 1:
         if eod:
             for q in 0..<sd:
@@ -213,7 +211,6 @@ when isMainModule:
     var y = newSeq[Complex[float]](caudio.len)
     let caudio_len = fft_array_len(caudio)
     timeIt "fft":
-        # Non-AVX is faster when -d:lto
         fft0b(caudio_len, 1, false, caudio, y)
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
