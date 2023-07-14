@@ -60,8 +60,11 @@ proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T)
                 y[q] = x[q]
     else:
         for p in 0..<m:
-            # let wp = thetaLut[(p*thetaLutSize) div n]
-            let wp = complex(0.0, 1.0)
+            when defined(fftSpeedy):
+                let wp = thetaLut[(p*thetaLutSize) div n]
+            else:
+                let fp = float(p)*theta0
+                let wp = complex(cos(fp), -sin(fp))
 
             let sp0 = s*(p+0)
             let spm = s*(p+m)
@@ -77,6 +80,56 @@ proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T)
         fft0(m, s * 2, not eo, y, x)
 
 
+proc ffts0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T, disp: int) =
+    ## Fast Fourier Transform
+    ##
+    ## Inputs:
+    ## - `n` Sequence length. **Must be power of two**
+    ## - `s` Stride
+    ## - `eo` x is output if eo == 0, y is output if eo == 1
+    ## - `x` Input sequence(or output sequence if eo == 0)
+    ## - `y` Work area(or output sequence if eo == 1)
+    ##
+    ## Returns:
+    ## - Output sequence, either `x` or `y`
+
+    ## n and s must always be powers of 2
+
+    assert n.isPowerOfTwo
+    assert s == 0 or s.isPowerOfTwo
+    let m: int = n div 2
+    # let s = 1 shl sp
+    # let tls: int = thetaLutSize
+
+    when not defined(fftSpeedy):
+        let theta0: float = 2.0*PI/float(n)
+
+    if n == 1:
+        if eo:
+            for q in 0..<s:
+                y[q+disp] = x[q+disp]
+    else:
+        for p in 0..<m:
+            when defined(fftSpeedy):
+                let wp = thetaLut[(p*thetaLutSize) div n]
+            else:
+                let fp = float(p)*theta0
+                let wp = complex(cos(fp), -sin(fp))
+
+            let sp0 = s*(p+0)+disp
+            let spm = s*(p+m)+disp
+            let s2p0 = s*(2*p+0)+disp
+            let s2p1 = s*(2*p+1)+disp
+
+            for q in 0..<s:
+                let a = x[q + sp0]
+                let b = x[q + spm]
+                y[q + s2p0] = a + b
+                y[q + s2p1] = (a - b) * wp
+
+        ffts0(m, s * 2, not eo, y, x, disp)
+
+
 proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     ## AVX float64 complex number multiplication
     let aa = mm256_unpacklo_pd(ab, ab)
@@ -85,7 +138,7 @@ proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
 
 
-proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
+proc fft0b*(n: int, x: var openArray[Complex[float]], y: var openArray[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -99,12 +152,13 @@ proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
     ## - Output sequence, either `x` or `y`
 
     doAssert n.isPowerOfTwo
-    
+
     var theta0: float = 2.0*PI/float(n)
     var nd = n
     var sd = 1
     var eod = false
     var fc = 0.0
+    var ndd = log2(nd)
 
     template inner_piece(tx, ty: untyped): untyped =
         fc = 0.0
@@ -112,12 +166,12 @@ proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
         nd = nd div 2
         for p in 0..<nd:
             when defined(fftSpeedy):
-                let wpl = thetaLut[(p*thetaLutSize) div nd]
+                let wpl = thetaLut[(p*thetaLutSize) shr ndd]
                 let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
             else:
                 let fp = fc*theta0
                 fc += 1.0
-                let cval =  cos(fp)
+                let cval = cos(fp)
                 let sval = -sin(fp)
                 let wp = mm256_setr_pd(cval, sval, cval, sval)
 
@@ -134,6 +188,7 @@ proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
 
         sd = sd * 2
         eod = not eod
+        dec ndd
 
     while nd > 1:
         # butterfly
@@ -147,17 +202,129 @@ proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
                 y[q] = x[q]
 
 
-# proc fft*(x: var seq[Complex[float]]) =
-#     # n : sequence length
-#     # x : input/output sequence
+proc fft0c*(n: int, x: var seq[Complex[float]], y: var seq[Complex[float]], disp: int) =
+    ## Fast Fourier Transform
+    ##
+    ## Inputs:
+    ## - `n` Sequence length. **Must be power of two**
+    ## - `s` Stride
+    ## - `eo` x is output if eo == 0, y is output if eo == 1
+    ## - `x` Input sequence(or output sequence if eo == 0)
+    ## - `y` Work area(or output sequence if eo == 1)
+    ##
+    ## Returns:
+    ## - Output sequence, either `x` or `y`
 
-#     # Input length has to be a power of two
-#     let alen = fft_array_len(x)
-#     assert alen > 0
-#     assert alen.isPowerOfTwo()
+    doAssert n.isPowerOfTwo
 
-#     var y = fft_empty_array(x)
-#     fft0(alen, 1, false, x, y)
+    var theta0: float = 2.0*PI/float(n)
+    var nd = n
+    var sd = 1
+    var eod = false
+    var fc = 0.0
+    var ndd = log2(nd)
+
+    template inner_piece(tx, ty: untyped): untyped =
+        fc = 0.0
+        theta0 = 2.0*PI/float(nd)
+        nd = nd div 2
+        for p in 0..<nd:
+            when defined(fftSpeedy):
+                let wpl = thetaLut[(p*thetaLutSize) shr ndd]
+                let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
+            else:
+                let fp = fc*theta0
+                fc += 1.0
+                let cval = cos(fp)
+                let sval = -sin(fp)
+                let wp = mm256_setr_pd(cval, sval, cval, sval)
+
+            let sp0 = sd*p + disp
+            let spm = sp0 + sd*nd + disp
+            let s2p0 = sp0 * 2 + disp
+            let s2p1 = s2p0 + sd + disp
+
+            for q in countup(0, sd-1, 2):
+                let a = mm256_load_pd(tx[q+sp0].re.addr)
+                let b = mm256_load_pd(tx[q+spm].re.addr)
+                mm256_store_pd(ty[q+s2p0].re.addr, mm256_add_pd(a, b))
+                mm256_store_pd(ty[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
+
+        sd = sd * 2
+        eod = not eod
+        dec ndd
+
+    while nd > 1:
+        # butterfly
+        inner_piece(x, y)
+        if nd <= 1:
+            break
+        inner_piece(y, x)
+    if nd == 1:
+        if eod:
+            for q in 0..<sd:
+                y[q+disp] = x[q+disp]
+
+
+proc sixstep_fft(log_N: int, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
+    doAssert floorMod(log_N, 2) == 0
+    doAssert log_N >= 2
+
+    let
+        # N == n*n
+        N = 1 shl log_N
+        n = 1 shl (log_N div 2)
+
+    # echo fmt"{N}, {n}"
+
+    # transpose x
+    for k in 0..<n:
+        for p in k+1..<n:
+            swap(x[p + k*n], x[k + p*n])
+
+    # FFT all p-line of x
+    for p in 0..<n:
+        ffts0(n, 1, false, x, y, p*n)
+        # fft0c(n, x, y, p*n)
+
+    # multiply twiddle factor and transpose x
+    for p in 0..<n:
+        let theta0 = float(2 * p) * PI / float(N)
+        for k in p..<n:
+            let theta = float(k) * theta0
+            let wkp = complex(cos(theta), -sin(theta))
+            if k == p:
+                x[p + p*n] *= wkp
+            else:
+                let a = x[k + p*n] * wkp
+                let b = x[p + k*n] * wkp
+                x[k + p*n] = b
+                x[p + k*n] = a
+
+    # FFT all k-line of x
+    for k in 0..<n:
+        ffts0(n, 1, false, x, y, k*n)
+        # fft0c(n, x, y, k*n)
+
+    # transpose x
+    for k in 0..<n:
+        for p in k+1..<n:
+            swap(x[p + k*n], x[k + p*n])
+
+
+proc fft*(x: var seq[Complex[float]]) =
+    # n : sequence length
+    # x : input/output sequence
+
+    # Input length has to be a power of two
+    let alen = x.len
+    assert alen > 0
+    assert alen.isPowerOfTwo()
+
+    var y = newSeq[Complex[float]](x.len)
+    # fft0(alen, 1, false, x, y)
+    # fft0b(alen, x, y)
+    sixstep_fft(log2(alen), x, y)
 
 # proc ifft*(x: var seq[Complex[float]]) =
 #     # n : sequence length
@@ -177,29 +344,31 @@ proc fft0b*[T: seq[Complex[float]]](n: int, x: var T, y: var T) =
 when isMainModule:
     echo "Running fft.nim"
 
-    # let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
-    #             -1.0,-1.0, 0.0, 0.0,-1.0,-1.0,-1.0,-1.0]
-
-    # let fft_target = @[2.0, 6.15, 4.13, 3.4 , 1.41, 2.27, 1.71, 1.22,
-    #                    0.0, 1.22, 1.71, 2.27, 1.41, 3.4 , 4.13, 6.15]
-
-    # var ts = tarr.mapIt(complex(it, 0.0))
-    # fft(ts)
-    # var fft_result = ts.mapIt(round(abs(it), 2))
-    # echo fft_target
-    # echo fft_result
-    # doAssert fft_result == fft_target
-    # doAssert ts[0].re != tarr[0]
-    # ifft(ts)
-    # var tsr = ts.mapIt(round(it.re, 4))
-    # doAssert tsr == tarr
-
     doAssert log2(2) == 1
     doAssert log2(4) == 2
     doAssert log2(8) == 3
     doAssert log2(16) == 4
-    doAssert log2(32) == 5
     doAssert log2(64) == 6
+
+    let tarr = @[1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                -1.0, -1.0, 0.0, 0.0, -1.0, -1.0, -1.0, -1.0]
+
+    let fft_target = @[2.0, 6.15, 4.13, 3.4, 1.41, 2.27, 1.71, 1.22,
+                       0.0, 1.22, 1.71, 2.27, 1.41, 3.4, 4.13, 6.15]
+
+    var ts = tarr.map(proc(x: float): Complex[float] = complex(x, 0.0))
+    ts.fft
+    var fft_result = ts.map(proc(x: Complex[float]): float = round(abs(x), 2))
+
+    echo fft_target
+    echo fft_result
+
+    # doAssert fft_result == fft_target
+    # doAssert ts[0].re != tarr[0]
+
+    # ifft(ts)
+    # var tsr = ts.mapIt(round(it.re, 4))
+    # doAssert tsr == tarr
 
     var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
     var caudio = newSeq[Complex[float]](audio.len)
@@ -209,9 +378,12 @@ when isMainModule:
     echo fmt"Sample len: {caudio_len} (2^{log2(caudio_len)})"
 
     var y = newSeq[Complex[float]](caudio.len)
+    let sfl2 = log2(caudio.len)
     timeIt "fft":
+        # sixstep_fft(sfl2, caudio, y)
+        # ffts0(caudio_len, 1, false, caudio, y, 0)
+        # fft0(caudio_len, 1, false, caudio, y)
         fft0b(caudio_len, caudio, y)
-        # fft0b(caudio_len, 1, false, caudio, y)
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
