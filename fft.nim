@@ -79,7 +79,7 @@ proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
 
 
-proc fft0b*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0b*[T: FFTArray](n: int, x: var T, y: var T) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -95,12 +95,12 @@ proc fft0b*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## n and s must always be powers of 2
 
     assert n.isPowerOfTwo
-    assert s == 0 or s.isPowerOfTwo
+    # assert s == 0 or s.isPowerOfTwo
     
     var theta0: float = 2.0*PI/float(n)
     var nd = n
-    var sd = s
-    var eod = eo
+    var sd = 1
+    var eod = false
     var fc = 0.0
 
     template inner_piece(tx, ty: untyped): untyped =
@@ -125,7 +125,15 @@ proc fft0b*[T: FFTArray](n: int, s: int, eo: bool, x: var T, y: var T) =
             for q in countup(0, sd-1, 2):
                 let a = mm256_load_pd(x[q+sp0].re.addr)
                 let b = mm256_load_pd(x[q+spm].re.addr)
-                mm256_store_pd(y[q+s2p0].re.addr,           mm256_add_pd(a, b))
+                mm256_store_pd(y[q+s2p0].re.addr, mm256_add_pd(a, b))
+
+                # let aa = mm256_unpacklo_pd(wp, wp)
+                # let bb = mm256_unpackhi_pd(wp, wp)
+                # let xy = mm256_sub_pd(a, b)
+                # let yx = mm256_shuffle_pd(xy, xy, 5)
+                # let xya = mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
+                # mm256_store_pd(y[q+s2p1].re.addr, xya)
+           
                 mm256_store_pd(y[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
 
             fc += 1.0
@@ -211,7 +219,8 @@ when isMainModule:
     var y = newSeq[Complex[float]](caudio.len)
     let caudio_len = fft_array_len(caudio)
     timeIt "fft":
-        fft0b(caudio_len, 1, false, caudio, y)
+        fft0b(caudio_len, caudio, y)
+        # fft0b(caudio_len, 1, false, caudio, y)
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
