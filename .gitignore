@@ -18,3 +18,4 @@ bench_pocket
 *.lib
 *.ilk
 *.pdb
+temp.nim
