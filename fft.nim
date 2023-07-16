@@ -93,7 +93,7 @@ proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T)
         fft0(m, s * 2, not eo, y, x)
 
 
-proc ffts0*(n: int, x: ptr UncheckedArray[Complex[float]], y: ptr UncheckedArray[Complex[float]]) =
+proc ffts0*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -170,7 +170,7 @@ proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
 
 
-proc fft0x*(n: int, x: ptr UncheckedArray[Complex[float]], y: ptr UncheckedArray[Complex[float]]) =
+proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -243,35 +243,26 @@ when compileOption("threads"):
         for p in a..<b: 
             fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
     
+    # let splits = 16
+    # let step = n div splits
+    # for p in 0||(splits-1):
+    #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
+
     proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
         let N = 1 shl log_N
         let n = 1 shl (log_N div 2)
-
-        assert N >= 4
-        assert n >= 1
 
         # transpose x
         for k in 0..<n:
             for p in k+1..<n:
                 swap(x[p + k*n], x[k + p*n])
 
-        let splits = 16
-        let step = n div splits
-
-        doAssert step > 0
-
-        var unsafex = x.unsafeArray(0)
-        var unsafey = y.unsafeArray(0)
-
         # FFT all p-line of x
-        {.push stacktrace:off.}
         for p in 0||(n-1):
             fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
-        # for p in 0||(splits-1):
-        #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
 
         # multiply twiddle factor and transpose x
-        for p in 0..<n:
+        for p in 0||(n-1):
             let theta0 = float(2 * p) * PI / float(N)
             for k in p..<n:
                 let theta = float(k) * theta0
@@ -287,10 +278,6 @@ when compileOption("threads"):
         # FFT all k-line of x
         for p in 0||(n-1):
             fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
-        # for p in 0||(splits-1):
-        #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
-
-        {.pop.}
 
         # transpose x
         for k in 0..<n:
@@ -300,9 +287,6 @@ else:
     proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
         let N = 1 shl log_N
         let n = 1 shl (log_N div 2)
-
-        assert N >= 4
-        assert n >= 1
 
         # transpose x
         for k in 0..<n:
@@ -434,3 +418,6 @@ when isMainModule:
 
     # gcc needs --passc:"-mavx" for avx
 
+    # openmp
+    # nim c -r -d:danger --passc:"-fopenmp" --passl:"-lgomp" --threads:on fft.nim
+    # nim --cc:vcc c -r -d:danger -d:lto -d:fftSpeedy --passc:"/openmp" --threads:on fft.nim
