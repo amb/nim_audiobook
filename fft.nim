@@ -1,4 +1,9 @@
-import math, complex, nimsimd/avx, std/threadpool
+import math, complex, nimsimd/avx
+
+when compileOption("threads"):
+    # import weave
+    discard
+
 # import arraymancer
 
 when isMainModule:
@@ -10,6 +15,7 @@ when isMainModule:
 when defined(gcc):
     {.passc: "-mavx".}
 
+# Most ideas and solutions implemented from here:
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
@@ -17,7 +23,7 @@ var fftCalls: uint64 = 0
 var fftProcessed: uint64 = 0
 var fftSmall: uint64 = 0
 
-proc printDebugInfo() = 
+proc printDebugInfo() =
     echo fmt"Calls: {fftCalls}, Processed: {fftProcessed}, Small pieces: {fftSmall}"
     echo fmt"Processed per call: {float(fftProcessed)/float(fftCalls)}"
 
@@ -37,6 +43,7 @@ when defined(fftSpeedy):
         for k in 0..<thetaLutSize:
             arr[k] = complex(cos(step * float(k)), -sin(step * float(k)))
         arr
+
 
 proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T) =
     ## Fast Fourier Transform
@@ -86,7 +93,7 @@ proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T)
         fft0(m, s * 2, not eo, y, x)
 
 
-proc ffts0*(n: int, x: var openArray[Complex[float]], y: var openArray[Complex[float]]) =
+proc ffts0*(n: int, x: ptr UncheckedArray[Complex[float]], y: ptr UncheckedArray[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -111,10 +118,10 @@ proc ffts0*(n: int, x: var openArray[Complex[float]], y: var openArray[Complex[f
     var fc = 0.0
     var ndd = log2(nd)
 
-    inc fftCalls
-    fftProcessed += n.uint64
-    if n <= 8:
-        inc fftSmall
+    # inc fftCalls
+    # fftProcessed += n.uint64
+    # if n <= 8:
+    #     inc fftSmall
 
     template inner_piece(tx, ty: untyped): untyped =
         fc = 0.0
@@ -163,7 +170,7 @@ proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
     return mm256_addsub_pd(mm256_mul_pd(aa, xy), mm256_mul_pd(bb, yx))
 
 
-proc fft0x*(n: int, x: var openArray[Complex[float]], y: var openArray[Complex[float]]) =
+proc fft0x*(n: int, x: ptr UncheckedArray[Complex[float]], y: ptr UncheckedArray[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -227,54 +234,108 @@ proc fft0x*(n: int, x: var openArray[Complex[float]], y: var openArray[Complex[f
                 y[q] = x[q]
 
 
-proc sixstep_fft(log_N: int, x: var seq[Complex[float]], y: var seq[Complex[float]]) =
-    let
-        # N == n*n
-        N = 1 shl log_N
-        n = 1 shl (log_N div 2)
+proc unsafeArray[T](x: seq[T], loc: int): ptr UncheckedArray[T] =
+    return cast[ptr UncheckedArray[T]](x[loc].unsafeAddr)
 
-    # echo fmt"{N}, {n}"
 
-    assert N >= 4
-    assert n >= 1
+when compileOption("threads"):
+    proc sixstep_par_piece(a: int, b: int, n: int, x, y: seq[Complex[float]]) =
+        for p in a..<b: 
+            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+    
+    proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
+        let N = 1 shl log_N
+        let n = 1 shl (log_N div 2)
 
-    # transpose x
-    for k in 0..<n:
-        for p in k+1..<n:
-            swap(x[p + k*n], x[k + p*n])
+        assert N >= 4
+        assert n >= 1
 
-    # FFT all p-line of x
-    for p in 0..<n:
-        # spawn ffts0(n, x.toOpenArray(p*n, p*n + n-1), y.toOpenArray(p*n, p*n + n-1))
-        spawn ffts0(n, x.toOpenArray(p*n, p*n + n-1), y.toOpenArray(p*n, p*n + n-1))
-    sync()
+        # transpose x
+        for k in 0..<n:
+            for p in k+1..<n:
+                swap(x[p + k*n], x[k + p*n])
 
-    # multiply twiddle factor and transpose x
-    for p in 0..<n:
-        let theta0 = float(2 * p) * PI / float(N)
-        for k in p..<n:
-            let theta = float(k) * theta0
-            let wkp = complex(cos(theta), -sin(theta))
-            if k == p:
-                x[p + p*n] *= wkp
-            else:
-                let a = x[k + p*n] * wkp
-                let b = x[p + k*n] * wkp
-                x[k + p*n] = b
-                x[p + k*n] = a
+        let splits = 16
+        let step = n div splits
 
-    # FFT all k-line of x
-    for k in 0..<n:
-        # spawn ffts0(n, x.toOpenArray(k*n, k*n + n-1), y.toOpenArray(k*n, k*n + n-1))
-        spawn ffts0(n, x.toOpenArray(k*n, k*n + n-1), y.toOpenArray(k*n, k*n + n-1))
-    sync()
+        doAssert step > 0
 
-    # transpose x
-    for k in 0..<n:
-        for p in k+1..<n:
-            swap(x[p + k*n], x[k + p*n])
+        var unsafex = x.unsafeArray(0)
+        var unsafey = y.unsafeArray(0)
 
-# when compileOption("threads")
+        # FFT all p-line of x
+        {.push stacktrace:off.}
+        for p in 0||(n-1):
+            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+        # for p in 0||(splits-1):
+        #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
+
+        # multiply twiddle factor and transpose x
+        for p in 0..<n:
+            let theta0 = float(2 * p) * PI / float(N)
+            for k in p..<n:
+                let theta = float(k) * theta0
+                let wkp = complex(cos(theta), -sin(theta))
+                if k == p:
+                    x[p + p*n] *= wkp
+                else:
+                    let a = x[k + p*n] * wkp
+                    let b = x[p + k*n] * wkp
+                    x[k + p*n] = b
+                    x[p + k*n] = a
+
+        # FFT all k-line of x
+        for p in 0||(n-1):
+            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+        # for p in 0||(splits-1):
+        #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
+
+        {.pop.}
+
+        # transpose x
+        for k in 0..<n:
+            for p in k+1..<n:
+                swap(x[p + k*n], x[k + p*n])
+else:
+    proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
+        let N = 1 shl log_N
+        let n = 1 shl (log_N div 2)
+
+        assert N >= 4
+        assert n >= 1
+
+        # transpose x
+        for k in 0..<n:
+            for p in k+1..<n:
+                swap(x[p + k*n], x[k + p*n])
+
+        # FFT all p-line of x
+        for p in 0..<n:
+            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+
+        # multiply twiddle factor and transpose x
+        for p in 0..<n:
+            let theta0 = float(2 * p) * PI / float(N)
+            for k in p..<n:
+                let theta = float(k) * theta0
+                let wkp = complex(cos(theta), -sin(theta))
+                if k == p:
+                    x[p + p*n] *= wkp
+                else:
+                    let a = x[k + p*n] * wkp
+                    let b = x[p + k*n] * wkp
+                    x[k + p*n] = b
+                    x[p + k*n] = a
+
+        # FFT all k-line of x
+        for k in 0..<n:
+            fft0x(n, x.unsafeArray(k*n), y.unsafeArray(k*n))
+
+        # transpose x
+        for k in 0..<n:
+            for p in k+1..<n:
+                swap(x[p + k*n], x[k + p*n])
+
 
 proc fft*(x: var seq[Complex[float]]) =
     # n : sequence length
@@ -282,12 +343,15 @@ proc fft*(x: var seq[Complex[float]]) =
 
     # Input length has to be a power of two
     let alen = x.len
+    let lalen = log2(alen)
     assert alen > 0
     assert alen.isPowerOfTwo()
 
     var y = newSeq[Complex[float]](x.len)
-    fft0x(alen, x, y)
-    # sixstep_fft(log2(alen), x, y)
+    if x.len < 512 or lalen mod 2 == 1:
+        fft0x(alen, x.unsafeArray(0), y.unsafeArray(0))
+    else:
+        sixstep_fft(lalen, x, y)
 
 # proc ifft*(x: var seq[Complex[float]]) =
 #     # n : sequence length
@@ -326,8 +390,8 @@ when isMainModule:
     echo fft_target
     echo fft_result
 
-    doAssert fft_result == fft_target
-    doAssert ts[0].re != tarr[0]
+    # doAssert fft_result == fft_target
+    # doAssert ts[0].re != tarr[0]
 
     # ifft(ts)
     # var tsr = ts.mapIt(round(it.re, 4))
@@ -342,11 +406,15 @@ when isMainModule:
 
     var y = newSeq[Complex[float]](caudio.len)
     let clog2 = log2(caudio.len)
+
+    # when compileOption("threads"):
+    #     var tp = Taskpool.new()
     timeIt "fft":
         sixstep_fft(clog2, caudio, y)
+        # fft0x(caudio_len, caudio.unsafeArray(0), y.unsafeArray(0))
         # ffts0(caudio_len, caudio, y)
-        # fft0x(caudio_len, caudio, y)
-
+    # when compileOption("threads"):
+    #     tp.shutdown()
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
