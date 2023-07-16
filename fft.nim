@@ -186,13 +186,11 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     ##
     ## Inputs:
     ## - `n` Sequence length. **Must be power of two**
-    ## - `s` Stride
-    ## - `eo` x is output if eo == 0, y is output if eo == 1
-    ## - `x` Input sequence(or output sequence if eo == 0)
-    ## - `y` Work area(or output sequence if eo == 1)
+    ## - `x` Input sequence
+    ## - `y` Work area
     ##
     ## Returns:
-    ## - Output sequence, either `x` or `y`
+    ## - Output sequence in `x`
 
     assert n.isPowerOfTwo
 
@@ -243,7 +241,7 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     if nd == 1:
         if eod:
             for q in 0..<sd:
-                y[q] = x[q]
+                x[q] = y[q]
 
 
 proc unsafeArray[T](x: seq[T], loc: int): ptr UncheckedArray[T] =
@@ -251,21 +249,12 @@ proc unsafeArray[T](x: seq[T], loc: int): ptr UncheckedArray[T] =
 
 
 when compileOption("threads"):
-    proc sixstep_par_piece(a: int, b: int, n: int, x, y: seq[Complex[float]]) =
-        for p in a..<b: 
-            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
-    
-    # let splits = 16
-    # let step = n div splits
-    # for p in 0||(splits-1):
-    #     sixstep_par_piece(p*step, (p+1)*step, n, x, y)
-
     proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
         let N = 1 shl log_N
         let n = 1 shl (log_N div 2)
 
         # transpose x
-        for k in 0..<n:
+        for k in 0||(n-1):
             for p in k+1..<n:
                 swap(x[p + k*n], x[k + p*n])
 
@@ -292,7 +281,7 @@ when compileOption("threads"):
             fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
 
         # transpose x
-        for k in 0..<n:
+        for k in 0||(n-1):
             for p in k+1..<n:
                 swap(x[p + k*n], x[k + p*n])
 else:
