@@ -15,6 +15,14 @@ when isMainModule:
 when defined(gcc):
     {.passc: "-mavx".}
 
+when compileOption("threads"):
+    when defined(gcc):
+        {.passc: "-fopenmp".}
+        {.passl: "-lgomp".}
+    when defined(vcc):
+        {.passc: "/openmp".}
+
+
 # Most ideas and solutions implemented from here:
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
@@ -23,9 +31,11 @@ var fftCalls: uint64 = 0
 var fftProcessed: uint64 = 0
 var fftSmall: uint64 = 0
 
+
 proc printDebugInfo() =
     echo fmt"Calls: {fftCalls}, Processed: {fftProcessed}, Small pieces: {fftSmall}"
     echo fmt"Processed per call: {float(fftProcessed)/float(fftCalls)}"
+
 
 proc log2(n: int): int =
     ## Returns the log2 of an integer
@@ -33,6 +43,7 @@ proc log2(n: int): int =
     while tn > 1:
         tn = tn shr 1
         inc result
+
 
 when defined(fftSpeedy):
     # 2^12
@@ -45,7 +56,7 @@ when defined(fftSpeedy):
         arr
 
 
-proc fft0*[T: seq[Complex[float]]](n: int, s: int, eo: bool, x: var T, y: var T) =
+proc fft0*(n: int, s: int, eo: bool, x, y: var seq[Complex[float]]) =
     ## Fast Fourier Transform
     ##
     ## Inputs:
@@ -203,6 +214,7 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
             else:
                 let fp = fc*theta0
                 fc += 1.0
+                # TODO: sincos
                 let cval = cos(fp)
                 let sval = -sin(fp)
                 let wp = mm256_setr_pd(cval, sval, cval, sval)
@@ -327,9 +339,9 @@ proc fft*(x: var seq[Complex[float]]) =
 
     # Input length has to be a power of two
     let alen = x.len
-    let lalen = log2(alen)
     assert alen > 0
     assert alen.isPowerOfTwo()
+    let lalen = log2(alen)
 
     var y = newSeq[Complex[float]](x.len)
     if x.len < 512 or lalen mod 2 == 1:
@@ -394,8 +406,10 @@ when isMainModule:
     # when compileOption("threads"):
     #     var tp = Taskpool.new()
     timeIt "fft":
-        sixstep_fft(clog2, caudio, y)
-        # fft0x(caudio_len, caudio.unsafeArray(0), y.unsafeArray(0))
+        when compileOption("threads"):
+            sixstep_fft(clog2, caudio, y)
+        else:
+            fft0x(caudio_len, caudio.unsafeArray(0), y.unsafeArray(0))
         # ffts0(caudio_len, caudio, y)
     # when compileOption("threads"):
     #     tp.shutdown()
