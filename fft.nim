@@ -241,79 +241,46 @@ proc unsafeArray[T](x: seq[T], loc: int): ptr UncheckedArray[T] =
     return cast[ptr UncheckedArray[T]](x[loc].unsafeAddr)
 
 
-when compileOption("threads"):
-    proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
-        let N = 1 shl log_N
-        let n = 1 shl (log_N div 2)
+proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
+    let N = 1 shl log_N
+    let n = 1 shl (log_N div 2)
 
-        # transpose x
-        # TODO: validation, verification. Parallel for might be 100% wrong here
-        for k in 0||(n-1):
-            for p in k+1..<n:
-                swap(x[p + k*n], x[k + p*n])
+    # TODO: verify
+    # ASSUMPTION:
+    # The OpenMP parallel for `||` seems to work for --threads:off also
+    # degrading into just a single threaded loop
 
-        # FFT all p-line of x
-        for p in 0||(n-1):
-            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+    # transpose x
+    for k in 0||(n-1):
+        for p in k+1..<n:
+            swap(x[p + k*n], x[k + p*n])
 
-        # multiply twiddle factor and transpose x
-        for p in 0||(n-1):
-            let theta0 = float(2 * p) * PI / float(N)
-            for k in p..<n:
-                let theta = float(k) * theta0
-                let wkp = complex(cos(theta), -sin(theta))
-                if k == p:
-                    x[p + p*n] *= wkp
-                else:
-                    let a = x[k + p*n] * wkp
-                    let b = x[p + k*n] * wkp
-                    x[k + p*n] = b
-                    x[p + k*n] = a
+    # FFT all p-line of x
+    for p in 0||(n-1):
+        fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
 
-        # FFT all k-line of x
-        for p in 0||(n-1):
-            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
+    # multiply twiddle factor and transpose x
+    for p in 0||(n-1):
+        let theta0 = float(2 * p) * PI / float(N)
+        for k in p..<n:
+            let theta = float(k) * theta0
+            let wkp = complex(cos(theta), -sin(theta))
+            if k == p:
+                x[p + p*n] *= wkp
+            else:
+                let a = x[k + p*n] * wkp
+                let b = x[p + k*n] * wkp
+                x[k + p*n] = b
+                x[p + k*n] = a
 
-        # transpose x
-        for k in 0||(n-1):
-            for p in k+1..<n:
-                swap(x[p + k*n], x[k + p*n])
-else:
-    proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
-        let N = 1 shl log_N
-        let n = 1 shl (log_N div 2)
+    # FFT all k-line of x
+    for p in 0||(n-1):
+        fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
 
-        # transpose x
-        for k in 0..<n:
-            for p in k+1..<n:
-                swap(x[p + k*n], x[k + p*n])
-
-        # FFT all p-line of x
-        for p in 0..<n:
-            fft0x(n, x.unsafeArray(p*n), y.unsafeArray(p*n))
-
-        # multiply twiddle factor and transpose x
-        for p in 0..<n:
-            let theta0 = float(2 * p) * PI / float(N)
-            for k in p..<n:
-                let theta = float(k) * theta0
-                let wkp = complex(cos(theta), -sin(theta))
-                if k == p:
-                    x[p + p*n] *= wkp
-                else:
-                    let a = x[k + p*n] * wkp
-                    let b = x[p + k*n] * wkp
-                    x[k + p*n] = b
-                    x[p + k*n] = a
-
-        # FFT all k-line of x
-        for k in 0..<n:
-            fft0x(n, x.unsafeArray(k*n), y.unsafeArray(k*n))
-
-        # transpose x
-        for k in 0..<n:
-            for p in k+1..<n:
-                swap(x[p + k*n], x[k + p*n])
+    # transpose x
+    for k in 0||(n-1):
+        for p in k+1..<n:
+            swap(x[p + k*n], x[k + p*n])
 
 
 proc fft_singleshot*(x: var seq[Complex[float]]) =
@@ -347,15 +314,21 @@ proc fft_singleshot*(x: var seq[Complex[float]]) =
 #     for p in 0..<n:
 #         x[p] = x[p].conjugate
 
-proc loadAudioSample(filename: string): seq[Complex[float]] =
-    var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
-    var caudio = newSeq[Complex[float]](audio.len)
-    for i in 0..<audio.len:
-        caudio[i] = complex(audio[i], 0.0)
-    return caudio
-
-
 when isMainModule:
+    proc loadAudioSample(filename: string): seq[Complex[float]] =
+        var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
+        var caudio = newSeq[Complex[float]](audio.len)
+        for i in 0..<audio.len:
+            caudio[i] = complex(audio[i], 0.0)
+        return caudio
+
+
+    proc checkError(x, y: seq[Complex[float]]): float =
+        var error = 0.0
+        for i in 0..<x.len:
+            error += abs(x[i] - y[i])
+        return error / float(x.len)
+
     echo "Running fft.nim"
 
     doAssert log2(2) == 1
@@ -392,17 +365,11 @@ when isMainModule:
     fft0x(caudio2.len, caudio2.unsafeArray(0), y.unsafeArray(0))
     sixstep_fft(clog2, caudio, y)
 
-    var error = 0.0
-    for i in 0..<caudio.len:
-        error += abs(caudio[i] - caudio2[i])
-    echo error / float(caudio.len)
-    doAssert error < 0.0001
+    doAssert checkError(caudio, caudio2) < 0.0001
 
     timeIt "fft":
-        when compileOption("threads"):
-            sixstep_fft(clog2, caudio, y)
-        else:
-            fft0x(caudio_len, caudio.unsafeArray(0), y.unsafeArray(0))
+        sixstep_fft(clog2, caudio, y)
+        # fft0x(caudio.len, caudio.unsafeArray(0), y.unsafeArray(0))
         # ffts0(caudio_len, caudio, y)
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
