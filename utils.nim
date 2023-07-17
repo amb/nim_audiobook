@@ -1,5 +1,5 @@
 # import arraymancer 
-import std/[sequtils], math, complex
+import math
 
 # proc basicSine*(srate: int): Tensor[float] =
 #     let srate = float(srate)

@@ -1,16 +1,9 @@
 import math, complex, nimsimd/avx
 
-when compileOption("threads"):
-    # import weave
-    discard
-
-# import arraymancer
-
 when isMainModule:
     import benchy, strformat, strutils, sequtils
     import audiofile/[vorbis, wavfile]
     import utils
-    # import plottings, nimview
 
 when defined(gcc):
     {.passc: "-mavx".}
@@ -45,7 +38,7 @@ proc log2(n: int): int =
         inc result
 
 
-when defined(fftSpeedy):
+when defined(fftLUT):
     # 2^12
     const thetaLutSize = 4096
     const thetaLut = static:
@@ -75,7 +68,7 @@ proc fft0*(n: int, s: int, eo: bool, x, y: var seq[Complex[float]]) =
     assert s == 0 or s.isPowerOfTwo
     let m: int = n div 2
 
-    when not defined(fftSpeedy):
+    when not defined(fftLUT):
         let theta0: float = 2.0*PI/float(n)
 
     if n == 1:
@@ -84,7 +77,7 @@ proc fft0*(n: int, s: int, eo: bool, x, y: var seq[Complex[float]]) =
                 y[q] = x[q]
     else:
         for p in 0..<m:
-            when defined(fftSpeedy):
+            when defined(fftLUT):
                 let wp = thetaLut[(p*thetaLutSize) div n]
             else:
                 let fp = float(p)*theta0
@@ -139,7 +132,7 @@ proc ffts0*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
         theta0 = 2.0*PI/float(nd)
         nd = nd div 2
         for p in 0..<nd:
-            when defined(fftSpeedy):
+            when defined(fftLUT):
                 let wp = thetaLut[(p*thetaLutSize) shr ndd]
             else:
                 let fp = fc*theta0
@@ -170,7 +163,7 @@ proc ffts0*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     if nd == 1:
         if eod:
             for q in 0..<sd:
-                y[q] = x[q]
+                x[q] = y[q]
 
 
 proc mulpz(ab: M256d, xy: M256d): M256d {.inline.} =
@@ -206,7 +199,7 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
         theta0 = 2.0*PI/float(nd)
         nd = nd div 2
         for p in 0..<nd:
-            when defined(fftSpeedy):
+            when defined(fftLUT):
                 let wpl = thetaLut[(p*thetaLutSize) shr ndd]
                 let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
             else:
@@ -254,6 +247,7 @@ when compileOption("threads"):
         let n = 1 shl (log_N div 2)
 
         # transpose x
+        # TODO: validation, verification. Parallel for might be 100% wrong here
         for k in 0||(n-1):
             for p in k+1..<n:
                 swap(x[p + k*n], x[k + p*n])
@@ -322,7 +316,7 @@ else:
                 swap(x[p + k*n], x[k + p*n])
 
 
-proc fft*(x: var seq[Complex[float]]) =
+proc fft_singleshot*(x: var seq[Complex[float]]) =
     # n : sequence length
     # x : input/output sequence
 
@@ -353,6 +347,14 @@ proc fft*(x: var seq[Complex[float]]) =
 #     for p in 0..<n:
 #         x[p] = x[p].conjugate
 
+proc loadAudioSample(filename: string): seq[Complex[float]] =
+    var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
+    var caudio = newSeq[Complex[float]](audio.len)
+    for i in 0..<audio.len:
+        caudio[i] = complex(audio[i], 0.0)
+    return caudio
+
+
 when isMainModule:
     echo "Running fft.nim"
 
@@ -369,39 +371,39 @@ when isMainModule:
                        0.0, 1.22, 1.71, 2.27, 1.41, 3.4, 4.13, 6.15]
 
     var ts = tarr.map(proc(x: float): Complex[float] = complex(x, 0.0))
-    ts.fft
+    ts.fft_singleshot
     var fft_result = ts.map(proc(x: Complex[float]): float = round(abs(x), 2))
 
     echo fft_target
     echo fft_result
 
-    # doAssert fft_result == fft_target
-    # doAssert ts[0].re != tarr[0]
+    doAssert fft_result == fft_target
+    doAssert ts[0].re != tarr[0]
 
     # ifft(ts)
     # var tsr = ts.mapIt(round(it.re, 4))
     # doAssert tsr == tarr
 
-    var audio = loadVorbis("data/sample.ogg").toFloat.padPowerOfTwo
-    var caudio = newSeq[Complex[float]](audio.len)
-    let caudio_len = caudio.len
-    for i in 0..<audio.len:
-        caudio[i] = complex(audio[i], 0.0)
-    echo fmt"Sample len: {caudio_len} (2^{log2(caudio_len)})"
+    var caudio = loadAudioSample("data/sample.ogg")
+    let clog2 = log2(caudio.len)
+    var caudio2 = caudio
 
     var y = newSeq[Complex[float]](caudio.len)
-    let clog2 = log2(caudio.len)
+    fft0x(caudio2.len, caudio2.unsafeArray(0), y.unsafeArray(0))
+    sixstep_fft(clog2, caudio, y)
 
-    # when compileOption("threads"):
-    #     var tp = Taskpool.new()
+    var error = 0.0
+    for i in 0..<caudio.len:
+        error += abs(caudio[i] - caudio2[i])
+    echo error / float(caudio.len)
+    doAssert error < 0.0001
+
     timeIt "fft":
         when compileOption("threads"):
             sixstep_fft(clog2, caudio, y)
         else:
             fft0x(caudio_len, caudio.unsafeArray(0), y.unsafeArray(0))
         # ffts0(caudio_len, caudio, y)
-    # when compileOption("threads"):
-    #     tp.shutdown()
 
     # nim c -d:lto -d:strip -d:danger -r fft.nim
     # nim c --cc:clang -d:release -d:danger --passC:"-flto" --passL:"-flto" -d:strip -r fft.nim && ll fft
@@ -423,4 +425,4 @@ when isMainModule:
 
     # openmp
     # nim c -r -d:danger --passc:"-fopenmp" --passl:"-lgomp" --threads:on fft.nim
-    # nim --cc:vcc c -r -d:danger -d:lto -d:fftSpeedy --passc:"/openmp" --threads:on fft.nim
+    # nim --cc:vcc c -r -d:danger -d:lto -d:fftLUT --passc:"/openmp" --threads:on fft.nim
