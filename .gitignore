@@ -8,5 +8,14 @@ profile_results.txt
 .DS_Store*
 run.txt
 test.c
-callgrind.*
-*.txt
+.vscode/
+otfft-11.5*/
+*_temp.h
+*.o
+bench_otfft
+bench_pocket
+*.obj
+*.lib
+*.ilk
+*.pdb
+temp.nim
