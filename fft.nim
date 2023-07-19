@@ -200,11 +200,6 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
         theta0 = 2.0*PI/float(nd)
         nd = nd div 2
         for p in 0..<nd:
-            # For AVX interpolation:
-            # fmadd(t, b, fnmadd(t, a, a))
-            # = (t * b) + (-(t * a) + a)
-            # = t * b + a - (t * a)
-            # = t * b + a * (1 - t) 
             when defined(fftLUT):
                 let wpl = thetaLut[(p*thetaLutSize) shr ndd]
                 let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
@@ -249,7 +244,6 @@ proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
     let N = 1 shl log_N
     let n = 1 shl (log_N div 2)
 
-    # TODO: verify
     # ASSUMPTION:
     # The OpenMP parallel for `||` seems to work for --threads:off also
     # degrading into just a single threaded loop
