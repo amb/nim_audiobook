@@ -20,15 +20,6 @@ when compileOption("threads"):
 # OTFFT library
 # http://wwwa.pikara.ne.jp/okojisan/otfft-en/optimization1.html
 
-var fftCalls: uint64 = 0
-var fftProcessed: uint64 = 0
-var fftSmall: uint64 = 0
-
-
-proc printDebugInfo() =
-    echo fmt"Calls: {fftCalls}, Processed: {fftProcessed}, Small pieces: {fftSmall}"
-    echo fmt"Processed per call: {float(fftProcessed)/float(fftCalls)}"
-
 
 proc log2(n: int): int =
     ## Returns the log2 of an integer
@@ -243,10 +234,6 @@ proc unsafeArray[T](x: seq[T], loc: int): ptr UncheckedArray[T] =
 proc sixstep_fft(log_N: int, x, y: var seq[Complex[float]]) =
     let N = 1 shl log_N
     let n = 1 shl (log_N div 2)
-
-    # ASSUMPTION:
-    # The OpenMP parallel for `||` seems to work for --threads:off also
-    # degrading into just a single threaded loop
 
     # transpose x
     for k in 0||(n-1):
