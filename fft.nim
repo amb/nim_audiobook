@@ -184,40 +184,22 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
     var sd = 1
     var eod = false
     var fc = 0.0
-    var ndd = log2(nd)
-
-    template inner_piece_simple(tx, ty: untyped): untyped =
-        fc = 0.0
-        theta0 = 2.0*PI/float(nd)
-        nd = nd div 2
-        for p in 0..<nd:
-            let sp0 = sd*p
-            let spm = sp0 + sd*nd
-            let s2p0 = sp0 * 2
-            let s2p1 = s2p0 + sd
-            let fp = float(p)*theta0
-            let a = tx[0 + sp0]
-            let b = tx[0 + spm]
-            ty[0 + s2p0] = a + b
-            ty[0 + s2p1] = (a - b) * complex(cos(fp), -sin(fp))
-        sd = sd * 2
-        eod = not eod
-        dec ndd
+    # var ndd = log2(nd)
 
     template inner_piece(tx, ty: untyped): untyped =
         fc = 0.0
         theta0 = 2.0*PI/float(nd)
         nd = nd div 2
         for p in 0..<nd:
-            when defined(fftLUT):
-                let wpl = thetaLut[(p*thetaLutSize) shr ndd]
-                let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
-            else:
-                # Efficient sincos seems to happen through compiler optimization 
-                let cval = cos(fc)
-                let sval = -sin(fc)
-                let wp = mm256_setr_pd(cval, sval, cval, sval)
-                fc += theta0
+            # when defined(fftLUT):
+            #     let wpl = thetaLut[(p*thetaLutSize) shr ndd]
+            #     let wp = mm256_setr_pd(wpl.re, wpl.im, wpl.re, wpl.im)
+            # else:
+            # Efficient sincos seems to happen through compiler optimization 
+            let cval = cos(fc)
+            let sval = -sin(fc)
+            let wp = mm256_setr_pd(cval, sval, cval, sval)
+            fc += theta0
 
             let sp0 = sd*p
             let spm = sp0 + sd*nd
@@ -231,9 +213,23 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
                 mm256_store_pd(ty[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
         sd = sd * 2
         eod = not eod
-        dec ndd
+        # dec ndd
 
-    inner_piece_simple(x, y)
+    # First inner_piece where sd == 1
+    nd = nd div 2
+    for p in 0..<nd:
+        let sp0 = sd*p
+        let spm = sp0 + sd*nd
+        let s2p0 = sp0 * 2
+        let s2p1 = s2p0 + sd
+        let fp = float(p)*theta0
+        let a = x[0 + sp0]
+        let b = x[0 + spm]
+        y[0 + s2p0] = a + b
+        y[0 + s2p1] = (a - b) * complex(cos(fp), -sin(fp))
+    sd = sd * 2
+    eod = not eod
+    # dec ndd
 
     while nd > 1:
         # butterfly
