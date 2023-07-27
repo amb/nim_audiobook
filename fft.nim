@@ -224,18 +224,11 @@ proc fft0x*(n: int, x, y: ptr UncheckedArray[Complex[float]]) =
             let s2p0 = sp0 * 2
             let s2p1 = s2p0 + sd
 
-            if sd == 1:
-                let fp = float(p)*theta0
-                let a = tx[0 + sp0]
-                let b = tx[0 + spm]
-                ty[0 + s2p0] = a + b
-                ty[0 + s2p1] = (a - b) * complex(cos(fp), -sin(fp))
-            else:
-                for q in countup(0, sd-1, 2):
-                    let a = mm256_load_pd(tx[q+sp0].re.addr)
-                    let b = mm256_load_pd(tx[q+spm].re.addr)
-                    mm256_store_pd(ty[q+s2p0].re.addr, mm256_add_pd(a, b))
-                    mm256_store_pd(ty[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
+            for q in countup(0, sd-1, 2):
+                let a = mm256_load_pd(tx[q+sp0].re.addr)
+                let b = mm256_load_pd(tx[q+spm].re.addr)
+                mm256_store_pd(ty[q+s2p0].re.addr, mm256_add_pd(a, b))
+                mm256_store_pd(ty[q+s2p1].re.addr, mulpz(wp, mm256_sub_pd(a, b)))
         sd = sd * 2
         eod = not eod
         dec ndd
